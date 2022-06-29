@@ -2,4 +2,4 @@
 
 cd /dikumud3/vme/bin
 ./vme&
-./mplex -w -p 4280
+./mplex -p 4242
