@@ -18,3 +18,5 @@ Testing/
 unit_tests/CTestTestfile.cmake
 core.*
 gmon.out
+.vs/
+CMakeSettings.json
