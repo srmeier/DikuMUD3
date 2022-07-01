@@ -66,7 +66,7 @@ static void stat_world_count(const unit_data *ch, char *arg)
 
         if (i >= nMinCount)
         {
-            msg += diku::format_to_str("%s@%s(%s) : %d units <br/>", UNIT_FI_NAME(u), UNIT_FI_ZONENAME(u), u->getNames().Name(), i);
+            msg += diku::format_to_str("%s(%s) : %d units <br/>", u->getFileIndexSymName(), u->getNames().Name(), i);
             n++;
 
             if (n >= 40)
@@ -128,7 +128,7 @@ static void stat_memory(unit_data *ch)
         {
             if (u->getUnitIn() == nullptr)
             {
-                msg = diku::format_to_str("%s@%s is not in a room<br/>", UNIT_FI_NAME(u), UNIT_FI_ZONENAME(u));
+                msg = diku::format_to_str("%s is not in a room<br/>", u->getFileIndexSymName());
                 send_to_char(msg, ch);
             }
         }
@@ -464,7 +464,7 @@ static void extra_stat_zone(unit_data *ch, char *arg, zone_type *zone)
         case 5:
         {
             /* Errors/Info (Small hack, this :-) ) */
-            auto filename = diku::format_to_str("%s%s.%.3s", g_cServerConfig.getZoneDir().c_str(), zone->getFilename(), zone_args[argno]);
+            auto filename = diku::format_to_str("%s%s.%.3s", g_cServerConfig.getZoneDir(), zone->getFilename(), zone_args[argno]);
             if (!file_exists(filename))
             {
                 return;
@@ -724,12 +724,11 @@ static void stat_normal(unit_data *ch, unit_data *u)
     /* Even though type isn't a flag, we'd better show them all in case
      * more than one is set!
      */
-    auto msg = diku::format_to_str("Unit status: %s [%s@%s] %d copies (CRC %lu)<br/>Namelist: %s<br/>"
+    auto msg = diku::format_to_str("Unit status: %s [%s] %d copies (CRC %lu)<br/>Namelist: %s<br/>"
                                    "Title: \"%s\"<br/>Outside_descr:<br/>\"%s\"<br/>"
                                    "Inside_descr:<br/>\"%s\"<br/>",
                                    sprintbit(bits2, u->getUnitType(), g_unit_status),
-                                   UNIT_FI_NAME(u),
-                                   UNIT_FI_ZONENAME(u),
+                                   u->getFileIndexSymName(),
                                    u->getFileIndex() ? u->getFileIndex()->getNumInMem() : -1,
                                    u->getFileIndex() ? (unsigned long)u->getFileIndex()->getCRC() : 0,
                                    cname,
@@ -853,7 +852,7 @@ static void stat_extra(const unit_data *ch, extra_list &elist, char *grp)
     }
     else
     {
-        send_to_char(str.c_str(), ch);
+        send_to_char(str, ch);
     }
 }
 
@@ -1055,7 +1054,7 @@ static void stat_data(const unit_data *ch, unit_data *u)
                                        CHAR_FOLLOWERS(u) ? STR(CHAR_FOLLOWERS(u)->getFollower()->getNames().Name()) : "Nobody",
                                        CHAR_LAST_ROOM(u) ? STR(CHAR_LAST_ROOM(u)->getTitle().c_str()) : "Nowhere",
                                        CHAR_LEVEL(u),
-                                       sprinttype(nullptr, CHAR_SEX(u), g_char_sex),
+                                       sprinttype(nullptr, u->getSex(), g_char_sex),
                                        sprinttype(nullptr, CHAR_POS(u), g_char_pos),
                                        u->isPC() ? sprinttype(nullptr, CHAR_RACE(u), g_pc_races) : itoa(CHAR_RACE(u)),
                                        char_carry_w_limit(u),
@@ -1176,11 +1175,10 @@ static void stat_data(const unit_data *ch, unit_data *u)
     else /* Stat on a room */
     {
         auto msg = diku::format_to_str("Room data:<br/>"
-                                       "%s [%s@%s]  Sector type: %s<br/>"
+                                       "%s [%s]  Sector type: %s<br/>"
                                        "Map (%d,%d) Magic resistance [%d]<br/>Outside Environment: %s<br/>",
-                                       u->getTitle().c_str(),
-                                       UNIT_FI_NAME(u),
-                                       UNIT_FI_ZONENAME(u),
+                                       u->getTitle(),
+                                       u->getFileIndexSymName(),
                                        sprinttype(nullptr, ROOM_LANDSCAPE(u), g_room_landscape),
                                        UROOM(u)->getMapXCoordinate(),
                                        UROOM(u)->getMapYCoordinate(),
@@ -1197,14 +1195,13 @@ static void stat_data(const unit_data *ch, unit_data *u)
 
                 if (ROOM_EXIT(u, i)->getToRoom())
                 {
-                    msg = diku::format_to_str("EXIT %-5s to [%s@%s] (%s)<br/>"
+                    msg = diku::format_to_str("EXIT %-5s to [%s] (%s)<br/>"
                                               "   Exit Name: [%s]<br/>"
                                               "   Exit Bits: [%s] Difficulty: [%d]<br/>"
                                               "   Key: [%s]<br/>",
                                               g_dirs[i],
-                                              UNIT_FI_NAME(ROOM_EXIT(u, i)->getToRoom()),
-                                              UNIT_FI_ZONENAME(ROOM_EXIT(u, i)->getToRoom()),
-                                              ROOM_EXIT(u, i)->getToRoom()->getTitle().c_str(),
+                                              ROOM_EXIT(u, i)->getToRoom()->getFileIndexSymName(),
+                                              ROOM_EXIT(u, i)->getToRoom()->getTitle(),
                                               cname,
                                               &bits2[0],
                                               ROOM_EXIT(u, i)->getSkillDifficulty(),
@@ -1240,11 +1237,10 @@ static void stat_contents(const unit_data *ch, unit_data *u)
         {
             if (CHAR_LEVEL(ch) >= u->getLevelOfWizardInvisibility())
             {
-                auto msg = diku::format_to_str("[%s@%s] Name '%s', Title '%s'  %s (L%d B%d)<br/>",
-                                               UNIT_FI_NAME(u),
-                                               UNIT_FI_ZONENAME(u),
+                auto msg = diku::format_to_str("[%s] Name '%s', Title '%s'  %s (L%d B%d)<br/>",
+                                               u->getFileIndexSymName(),
                                                u->getNames().Name(),
-                                               u->getTitle().c_str(),
+                                               u->getTitle(),
                                                u->isObj() && OBJ_EQP_POS(u) ? "Equipped" : "",
                                                u->getNumberOfActiveLightSources(),
                                                u->getLightOutput());
@@ -1315,7 +1311,7 @@ void do_wedit(unit_data *ch, char *argument, const command_info *cmd)
     t = "<data type='$json'>";
     t.append(u->json());
     t.append("</data>");
-    send_to_char(t.c_str(), ch);
+    send_to_char(t, ch);
 
     send_to_char("Sending json edit info to your browser.<br/>", ch);
 }

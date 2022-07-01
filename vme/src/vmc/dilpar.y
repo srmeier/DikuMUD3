@@ -22,6 +22,7 @@
 #include "db_file.h"
 #include "dil.h"
 #include "dilpar.h"
+#include "dilshare.h"
 #include "intlist.h"
 #include "namelist.h"
 #include "textutil.h"
@@ -106,7 +107,7 @@ int dilstr_top; /* Number of strings */
 char tmpfname[L_tmpnam] = "";
 
 void add_ref(struct dilref *ref);
-void add_var(char *name, ubit16 type);
+void add_var(char *name, DilVarType_e type);
 int add_label(char *str, ubit32 adr);
 ubit32 get_label(char *name, ubit32 adr);
 void moredilcore(ubit32 size);
@@ -117,7 +118,7 @@ void dilsyntax(const char *str);
 void dumpdiltemplate(struct diltemplate *tmpl);
 void dumpdil(struct dilprg *prg);
 int dil_corecrc(ubit8 *core, int len);
-int dil_headercrc(char **name, ubit8 *type);
+int dil_headercrc(char **name, DilVarType_e *type);
 void dil_free_template(struct diltemplate *tmpl, int copy, int dil = FALSE);
 void dil_free_var(struct dilvar *var);
 void dil_free_frame(struct dilframe *frame);
@@ -126,14 +127,14 @@ void dil_free_prg(struct dilprg *prg, int dil = FALSE);
 struct sSyms
 {
     cNamelist *names;
-    ubit8 type;
+    DilVarType_e type;
 };
 
 #define INITEXP(v)                                                             \
     CREATE(v.code, ubit8, CODESIZE);                                           \
     v.codep = v.code;                                                          \
     v.num = 0;                                                                 \
-    v.typ = v.rtyp = DILV_NULL;                                                \
+    v.typ = v.rtyp = DilVarType_e::DILV_NULL;                                                \
     v.dsl = DSL_STA;                                                           \
     v.boolean = 0;
 
@@ -408,9 +409,9 @@ dilinit : /* nothing */
             fprintf(stderr, "DIL (line %5d)", dillinenum);
         }
         /* Set up template  */
-        CREATE(tmpl.argt, ubit8, ARGMAX);
+        CREATE(tmpl.argt, DilVarType_e, ARGMAX);
         CREATE(tmpl.core, ubit8, CODESIZE);
-        CREATE(tmpl.vart, ubit8, VARMAX);
+        CREATE(tmpl.vart, DilVarType_e, VARMAX);
         tmpl.prgname = strdup("NONAME");
         tmpl.priority = FN_PRI_CHORES;
         tmpl.varc = 0;
@@ -427,10 +428,10 @@ dilinit : /* nothing */
         wcore = tmpl.core;
 
         /* setup tmp. reference */
-        CREATE(ref.argt, ubit8, ARGMAX);
+        CREATE(ref.argt, DilVarType_e, ARGMAX);
         CREATE(ref.argv, char *, ARGMAX);
         ref.name = nullptr;
-        ref.rtnt = DILV_ERR;
+        ref.rtnt = DilVarType_e::DILV_ERR;
         ref.argc = 0;
 
         /* setup program (not used with -t) */
@@ -521,7 +522,7 @@ decl    : syminit symlist ':' type
         {
             $$->names->AppendName(symlist[i]);
         }
-        $$->type = $4;
+        $$->type = DilVarTypeIntToEnum($4);  // I'm not sure why 'type' returns the INT value rather than a DilVarType_e
     }
     | // empty
     {
@@ -576,7 +577,7 @@ ref     : SYMBOL '(' arginit refarglist ')' ';'
 
         ref.name = str_dup(nbuf);
         ref.zname = str_dup(zbuf);
-        ref.rtnt = DILV_ERR;
+        ref.rtnt = DilVarType_e::DILV_ERR;
 
         add_ref(&ref);
     }
@@ -601,7 +602,7 @@ ref     : SYMBOL '(' arginit refarglist ')' ';'
 
         ref.name = str_dup(nbuf);
         ref.zname = str_dup(zbuf);
-        ref.rtnt = $1;
+        ref.rtnt = DilVarTypeIntToEnum($1); // Not sure why type returns an int rather than DilVarType_e
         add_ref(&ref);
     }
     ;
@@ -624,7 +625,7 @@ somerefargs : refarg ',' somerefargs
 refarg   : SYMBOL ':' type
     {
         /* collect argument */
-        ref.argt[ref.argc] = $3;
+        ref.argt[ref.argc] = DilVarTypeIntToEnum($3); ;  // I'm not sure why 'type' returns the INT value rather than a DilVarType_e
         ref.argv[ref.argc] = str_dup($1);
         if (++ref.argc > ARGMAX)
         {
@@ -662,7 +663,7 @@ fundef   : ref
 
         if (tmpl.argc)
         {
-            CREATE(tmpl.argt, ubit8, ref.argc);
+            CREATE(tmpl.argt, DilVarType_e, ref.argc);
             memcpy(tmpl.argt, ref.argt, ref.argc);
         }
         else
@@ -671,7 +672,7 @@ fundef   : ref
         }
 
         /* create template reference line for .dh file */
-        if (ref.rtnt == DILV_ERR)
+        if (ref.rtnt == DilVarType_e::DILV_ERR)
         {
             sprintf(cur_tmplref, "%s (", tmpl.prgname);
         }
@@ -715,35 +716,35 @@ fundef   : ref
 
 type    : DILST_UP
     {
-        $$ = DILV_UP;
+        $$ = DilVarType_e::DILV_UP;
     }
     | DILST_INT
     {
-        $$ = DILV_INT;
+        $$ = DilVarType_e::DILV_INT;
     }
     | DILST_SP
     {
-        $$ = DILV_SP;
+        $$ = DilVarType_e::DILV_SP;
     }
     | DILST_SLP
     {
-        $$ = DILV_SLP;
+        $$ = DilVarType_e::DILV_SLP;
     }
     | DILST_EDP
     {
-        $$ = DILV_EDP;
+        $$ = DilVarType_e::DILV_EDP;
     }
     | DILST_ZP
     {
-        $$ = DILV_ZP;
+        $$ = DilVarType_e::DILV_ZP;
     }
     | DILST_CP
     {
-        $$ = DILV_CP;
+        $$ = DilVarType_e::DILV_CP;
     }
     | DILST_ILP
     {
-        $$ = DILV_ILP;
+        $$ = DilVarType_e::DILV_ILP;
     }
     ;
 
@@ -762,12 +763,12 @@ variable : variable '.' field
         switch ($3.rtyp)
         {
             /* these structures have fields */
-            case DILV_UP:
-            case DILV_EDP:
-            case DILV_SLP:
-            case DILV_ZP:
-            case DILV_CP:
-            case DILV_SP:
+            case DilVarType_e::DILV_UP:
+            case DilVarType_e::DILV_EDP:
+            case DilVarType_e::DILV_SLP:
+            case DilVarType_e::DILV_ZP:
+            case DilVarType_e::DILV_CP:
+            case DilVarType_e::DILV_SP:
             {
                 if ($1.typ != $3.rtyp)
                 {
@@ -775,76 +776,76 @@ variable : variable '.' field
                 }
             }
             break;
-            case DILV_UEZP:
+            case DilVarType_e::DILV_UEZP:
             {
-                if ($1.typ != DILV_UP
-                    && $1.typ != DILV_EDP
-                    && $1.typ != DILV_ZP)
+                if ($1.typ != DilVarType_e::DILV_UP
+                    && $1.typ != DilVarType_e::DILV_EDP
+                    && $1.typ != DilVarType_e::DILV_ZP)
                 {
                     dilfatal("Illegal type for field");
                 }
             }
             break;
-            case DILV_UEZCP:
+            case DilVarType_e::DILV_UEZCP:
             {
-                if ($1.typ != DILV_UP
-                    && $1.typ != DILV_EDP
-                    && $1.typ != DILV_ZP
-                    && $1.typ != DILV_CP)
+                if ($1.typ != DilVarType_e::DILV_UP
+                    && $1.typ != DilVarType_e::DILV_EDP
+                    && $1.typ != DilVarType_e::DILV_ZP
+                    && $1.typ != DilVarType_e::DILV_CP)
                 {
                     dilfatal("Illegal type for field");
                 }
             }
             break;
-            case DILV_UZP:
+            case DilVarType_e::DILV_UZP:
             {
-                if ($1.typ != DILV_UP && $1.typ != DILV_ZP)
+                if ($1.typ != DilVarType_e::DILV_UP && $1.typ != DilVarType_e::DILV_ZP)
                 {
                     dilfatal("Illegal type for field");
                 }
             }
             break;
-            case DILV_UCP:
+            case DilVarType_e::DILV_UCP:
             {
-                if ($1.typ != DILV_UP && $1.typ != DILV_CP)
+                if ($1.typ != DilVarType_e::DILV_UP && $1.typ != DilVarType_e::DILV_CP)
                 {
                     dilfatal("Illegal type for field");
                 }
             }
             break;
-            case DILV_EZP:
+            case DilVarType_e::DILV_EZP:
             {
-                if ($1.typ != DILV_EDP && $1.typ != DILV_ZP)
-                {
-                    dilfatal("Illegal type for field");
-                }
-            }
-            break;
-
-            case DILV_UEDP: /* shared fields */
-            {
-                if ($1.typ != DILV_UP && $1.typ != DILV_EDP)
+                if ($1.typ != DilVarType_e::DILV_EDP && $1.typ != DilVarType_e::DILV_ZP)
                 {
                     dilfatal("Illegal type for field");
                 }
             }
             break;
 
-            case DILV_SP_SLP: /* shared fields */
+            case DilVarType_e::DILV_UEDP: /* shared fields */
             {
-                if ($1.typ != DILV_SLP && $1.typ != DILV_SP)
+                if ($1.typ != DilVarType_e::DILV_UP && $1.typ != DilVarType_e::DILV_EDP)
                 {
                     dilfatal("Illegal type for field");
                 }
             }
             break;
 
-            case DILV_ESLIP: /* shared fields */
+            case DilVarType_e::DILV_SP_SLP: /* shared fields */
             {
-                if ($1.typ != DILV_SLP
-                    && $1.typ != DILV_SP
-                    && $1.typ != DILV_EDP
-                    && $1.typ != DILV_ILP)
+                if ($1.typ != DilVarType_e::DILV_SLP && $1.typ != DilVarType_e::DILV_SP)
+                {
+                    dilfatal("Illegal type for field");
+                }
+            }
+            break;
+
+            case DilVarType_e::DILV_ESLIP: /* shared fields */
+            {
+                if ($1.typ != DilVarType_e::DILV_SLP
+                    && $1.typ != DilVarType_e::DILV_SP
+                    && $1.typ != DilVarType_e::DILV_EDP
+                    && $1.typ != DilVarType_e::DILV_ILP)
                 {
                     dilfatal("Illegal type for field");
                 }
@@ -867,11 +868,11 @@ variable : variable '.' field
         add_ubit8(&($$), DILE_FLD);
         add_ubit8(&($$), $3.num);
 
-        if (($3.typ == DILV_UEDP)
-            || ($3.typ == DILV_EZP)
-            || ($3.typ == DILV_UZP)
-            || ($3.typ == DILV_UEZCP)
-            || ($3.typ == DILV_UEZP))
+        if (($3.typ == DilVarType_e::DILV_UEDP)
+            || ($3.typ == DilVarType_e::DILV_EZP)
+            || ($3.typ == DilVarType_e::DILV_UZP)
+            || ($3.typ == DilVarType_e::DILV_UEZCP)
+            || ($3.typ == DilVarType_e::DILV_UEZP))
         {
             $$.typ = $1.typ; /* inherit type */
         }
@@ -880,15 +881,15 @@ variable : variable '.' field
             $$.typ = $3.typ; /* follow type */
         }
 
-        if ($3.typ == DILV_ESLIP)
+        if ($3.typ == DilVarType_e::DILV_ESLIP)
         {
-            if (($1.typ == DILV_SP) || ($1.typ == DILV_SLP))
+            if (($1.typ == DilVarType_e::DILV_SP) || ($1.typ == DilVarType_e::DILV_SLP))
             {
-                $$.typ = DILV_SP;
+                $$.typ = DilVarType_e::DILV_SP;
             }
-            else if ($1.typ == DILV_ILP)
+            else if ($1.typ == DilVarType_e::DILV_ILP)
             {
-                $$.typ = DILV_INT;
+                $$.typ = DilVarType_e::DILV_INT;
             }
             else
             {
@@ -897,11 +898,11 @@ variable : variable '.' field
         }
         $$.dsl = $3.dsl; /* static/dynamic/lvalue */
 
-        if ($1.typ == DILV_SLP && $1.dsl == DSL_LFT)
+        if ($1.typ == DilVarType_e::DILV_SLP && $1.dsl == DSL_LFT)
         {
             $$.dsl = DSL_LFT;
         }
-        if ($1.typ == DILV_ILP && $1.dsl == DSL_LFT)
+        if ($1.typ == DilVarType_e::DILV_ILP && $1.dsl == DSL_LFT)
         {
             $$.dsl = DSL_LFT;
         }
@@ -936,112 +937,112 @@ variable : variable '.' field
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_SELF);
     }
     | DILSE_ACTI
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_ACTI);
     }
     | DILSE_MEDI
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_MEDI);
     }
     | DILSE_TARG
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_TARG);
     }
     | DILSE_POWE
     {
         INITEXP($$);
         $$.dsl = DSL_LFT;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         add_ubit8(&($$), DILE_POWE);
     }
     | DILSE_CMST
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_SP;
+        $$.typ = DilVarType_e::DILV_SP;
         add_ubit8(&($$), DILE_CMST);
     }
     | DILSE_EXCMST
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_SP;
+        $$.typ = DilVarType_e::DILV_SP;
         add_ubit8(&($$), DILE_EXCMST);
     }
     | DILSE_EXCMSTC
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_SP;
+        $$.typ = DilVarType_e::DILV_SP;
         add_ubit8(&($$), DILE_EXCMSTC);
     }
     | DILSE_ARGM
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_SP;
+        $$.typ = DilVarType_e::DILV_SP;
         add_ubit8(&($$), DILE_ARGM);
     }
     | DILSE_HRT
     {
         INITEXP($$);
         $$.dsl = DSL_LFT;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         add_ubit8(&($$), DILE_HRT);
     }
     | DILSE_WEAT
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         add_ubit8(&($$), DILE_WEAT);
     }
     | DILSE_THO
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         add_ubit8(&($$), DILE_THO);
     }
     | DILSE_TDA
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         add_ubit8(&($$), DILE_TDA);
     }
     | DILSE_TMD
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         add_ubit8(&($$), DILE_TMD);
     }
     | DILSE_TYE
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         add_ubit8(&($$), DILE_TYE);
     }
     | DILSE_RTI
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         add_ubit8(&($$), DILE_RTI);
     }
     ;
@@ -1060,7 +1061,7 @@ idx     : '[' dilexp ']'
     {
         INITEXP($$);
         checkbool("index in array", $2.boolean);
-        if ($2.typ != DILV_INT && $2.typ != DILV_SP)
+        if ($2.typ != DilVarType_e::DILV_INT && $2.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Integer or string expected for index");
         }
@@ -1077,8 +1078,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($1));
-        $$.rtyp = DILV_ESLIP;
-        $$.typ = DILV_ESLIP;
+        $$.rtyp = DilVarType_e::DILV_ESLIP;
+        $$.typ = DilVarType_e::DILV_ESLIP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_IDX;
         FREEEXP($1);
@@ -1091,400 +1092,400 @@ field   : idx
     | DILSF_BIR /* .birth */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_BIR;
     }
     | DILSF_PTI /* .playtime */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_PTI;
     }
     | DILSF_PCF /* .pcflags */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_PCF;
     }
     | DILSF_HOME /* .home */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_HOME;
     }
     | DILSF_MAS /* .master */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_MAS;
     }
     | DILSF_LASTROOM /* .lastroom */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_LASTROOM;
     }
     | DILSF_FOL /* .follower */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_FOL;
     }
     | DILSF_IDX /* .idx */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_SID;
     }
     | DILSF_ZOI /* .zoneidx */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_ZOI;
     }
     | DILSF_NMI /* .nameidx */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_NMI;
     }
     | DILSF_SYMNAME /* .symname */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_SYMNAME;
     }
     | DILSF_KEY /* .key */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_KEY;
     }
     | DILSF_OFFEN /* .offensive */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_OFFEN;
     }
     | DILSF_DEFEN /* .defensive */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_DEFEN;
     }
     | DILSF_TYP /* .type */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UCP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UCP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_TYP;
     }
     | DILSF_NXT /* .next */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UEZCP;
-        $$.typ = DILV_UEZCP;
+        $$.rtyp = DilVarType_e::DILV_UEZCP;
+        $$.typ = DilVarType_e::DILV_UEZCP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_NXT;
     }
     | DILSF_NMS /* .names */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UEDP;
-        $$.typ = DILV_SLP;
+        $$.rtyp = DilVarType_e::DILV_UEDP;
+        $$.typ = DilVarType_e::DILV_SLP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_NMS;
     }
     | DILSF_CREATORS /* .creators */
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_SLP;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_SLP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_CREATORS;
     }
     | DILSF_NAM /* .name */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UEZCP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UEZCP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_NAM;
     }
     | DILSF_DES /* .descr (extras only) */
     {
         INITEXP($$);
-        $$.rtyp = DILV_EDP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_EDP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_DES;
     }
     | DILSF_VALS /* .vals (extras only) */
     {
         INITEXP($$);
-        $$.rtyp = DILV_EDP;
-        $$.typ = DILV_ILP;
+        $$.rtyp = DilVarType_e::DILV_EDP;
+        $$.typ = DilVarType_e::DILV_ILP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_VALS;
     }
     | DILSF_ODES /* .outside_descr */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ODES;
     }
     | DILSF_IDES /* .inside_descr */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_IDES;
     }
     | DILSF_TIT /* .title */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UZP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UZP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_TIT;
     }
     | DILSF_EXT /* .extra */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_EDP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_EDP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_EXT;
     }
     | DILSF_OUT /* .outside */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_OUT;
     }
     | DILSF_INS /* .inside */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_INS;
     }
     | DILSF_SWT /* .switched */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_SWT;
     }
     | DILSF_ROOMS /* .rooms */
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_ROOMS;
     }
     | DILSF_OBJS /* .objs */
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_OBJS;
     }
     | DILSF_NPCS /* .npcs */
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_NPCS;
     }
     | DILSF_RSTMD
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_RSTMD;
     }
     | DILSF_RSTTM
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_RSTTM;
     }
     | DILSF_ACCESS
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_ACCESS;
     }
     | DILSF_LDLVL
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_LDLVL;
     }
     | DILSF_PAYONLY
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_PAYONLY;
     }
     | DILSF_NROOMS
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_NROOMS;
     }
     | DILSF_NOBJS
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_NOBJS;
     }
     | DILSF_NNPCS
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_NNPCS;
     }
     | DILSF_GNX /* .gnext */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_GNX;
     }
     | DILSF_LCN
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_LCN;
     }
     | DILSF_GPR /* .gprevious */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_GPR;
     }
     | DILSF_LGT /* .light */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_LGT;
     }
     | DILSF_BGT /* .bright */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_BGT;
     }
     | DILSF_MIV /* .minv */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_MIV;
     }
     | DILSF_ILL /* .illum */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_ILL;
     }
     | DILSF_FL /* .flags */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_FL;
     }
     | DILSF_MAN /* .manipulate */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_MAN;
     }
     | DILSF_OFL /* .openflags */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_OFL;
     }
     | DILSF_OPENDIFF /* .opendiff */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ODI;
     }
@@ -1492,56 +1493,56 @@ field   : idx
     | DILSF_MHP /* .max_hp */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_MHP;
     }
     | DILSF_INFO /* .info */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_EDP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_EDP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_INFO;
     }
     | DILSF_LSA /* .lifespan */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_LSA;
     }
     | DILSF_MED /* .max_endurance */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_MED;
     }
     | DILSF_MMA /* .max_mana */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_MMA;
     }
     | DILSF_CHP /* .hp */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_CHP;
     }
     | DILSF_BWT /* .baseweight */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         //$$.dsl = DSL_LFT;
         $$.num = DILF_BWT;
@@ -1549,8 +1550,8 @@ field   : idx
     | DILSF_WGT /* .weight */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         //$$.dsl = DSL_LFT;
         $$.num = DILF_WGT;
@@ -1558,24 +1559,24 @@ field   : idx
     | DILSF_EDT /* .editing */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_EDT;
     }
     | DILSF_CAP /* .capacity */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_CAP;
     }
     | DILSF_ALG /* .alignment */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ALG;
     }
@@ -1583,24 +1584,24 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_SPL;
     }
     | DILSF_FUN /* .hasfunc */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_FUN;
     }
     | DILSF_ZON /* .zone */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_ZON;
     }
@@ -1612,8 +1613,8 @@ field   : idx
     | DILSF_OTY /* .objecttype */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_OTY;
     }
@@ -1621,8 +1622,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_VAL;
         FREEEXP($2);
@@ -1630,32 +1631,32 @@ field   : idx
     | DILSF_EFL /* .objectflags */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_EFL;
     }
     | DILSF_CST /* .cost */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_CST;
     }
     | DILSF_RNT /* .rent */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_RNT;
     }
     | DILSF_EQP /* .equip */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_EQP;
     }
@@ -1668,8 +1669,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SLP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SLP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ONM;
         FREEEXP($2);
@@ -1678,8 +1679,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_XNF;
         FREEEXP($2);
@@ -1688,8 +1689,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_XDIFF;
         FREEEXP($2);
@@ -1698,8 +1699,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_EXITKEY;
         FREEEXP($2);
@@ -1708,8 +1709,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_TOR;
         FREEEXP($2);
@@ -1717,32 +1718,32 @@ field   : idx
     | DILSF_MAPX /* .mapx */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_MAPX;
     }
     | DILSF_MAPY /* .mapy */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_MAPY;
     }
     | DILSF_RFL /* .roomflags */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_RFL;
     }
     | DILSF_MOV /* .movement */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_MOV;
     }
@@ -1754,64 +1755,64 @@ field   : idx
     | DILSF_ABAL /* .acc_balance */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_ABAL;
     }
     | DILSF_ATOT /* .acc_total */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_ATOT;
     }
     | DILSF_SPD /* .speed */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UCP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UCP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_SPD;
     }
     | DILSF_OPPCT /* .opponentcount */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_OPPCT;
     }
     | DILSF_FOLCT /* .followercount */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_FOLCT;
     }
     | DILSF_LOGLVL /* .loglevel */
     {
         INITEXP($$);
-        $$.rtyp = DILV_CP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_CP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_LOGLVL;
     }
     | DILSF_SEX /* .sex */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_SEX;
     }
     | DILSF_RCE /* .race */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_RCE;
     }
@@ -1819,8 +1820,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ABL;
         FREEEXP($2);
@@ -1829,8 +1830,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ABL_L;
         FREEEXP($2);
@@ -1839,8 +1840,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ABL_C;
         FREEEXP($2);
@@ -1849,8 +1850,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_SPL_L;
     }
@@ -1858,8 +1859,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_SPL_C;
     }
@@ -1867,8 +1868,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_SKL_L;
         FREEEXP($2);
@@ -1877,8 +1878,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_SKL_C;
         FREEEXP($2);
@@ -1887,8 +1888,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_WPN_L;
         FREEEXP($2);
@@ -1897,8 +1898,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_WPN_C;
         FREEEXP($2);
@@ -1906,112 +1907,112 @@ field   : idx
     | DILSF_EXP /* .exp */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_EXP;
     }
     | DILSF_EXPTOL /* .exptol */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_EXPTOL;
     }
     | DILSF_PROF /* .profession */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UCP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UCP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_PROF;
     }
     | DILSF_LVL /* .level */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UCP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UCP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_LVL;
     }
     | DILSF_VLVL /* .vlevel */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_VLVL;
     }
     | DILSF_HGT /* .height */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_HGT;
     }
     | DILSF_POS /* .position */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UCP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UCP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_POS;
     }
     | DILSF_NARM /* .natural_armour */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_NARM;
     }
     | DILSF_ATY /* .attack_type */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ATY;
     }
     | DILSF_MNA /* .mana */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_MNA;
     }
     | DILSF_END /* .endurance */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_END;
     }
     | DILSF_AFF /* .affected */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_AFF;
     }
     | DILSF_DRE /* .dex_red */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_DYN;
         $$.num = DILF_DRE;
     }
     | DILSF_FGT /* .fighting */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_UP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_FGT;
     }
@@ -2019,8 +2020,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_WPN;
         FREEEXP($2);
@@ -2033,16 +2034,16 @@ field   : idx
     | DILSF_DEF /* .defaultpos */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_DEF;
     }
     | DILSF_ACT /* .npcflags */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_ACT;
     }
@@ -2054,104 +2055,104 @@ field   : idx
     | DILSF_TIM /* .time */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_TIM;
     }
     | DILSF_CRM /* .crimes */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_CRM;
     }
     | DILSF_FLL /* .full */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_FLL;
     }
     | DILSF_THR /* .thirst */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_THR;
     }
     | DILSF_DRK /* .drunk */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_DRK;
     }
     | DILSF_SPT /* .skill_points */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_SPT;
     }
     | DILSF_APT /* .ability_points */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_APT;
     }
     | DILSF_GLD /* .guild */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_GLD;
     }
     | DILSF_PROMPT /* .prompt */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_PROMPT;
     }
     | DILSF_FNAME /*.filename*/
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_FNAME;
     }
     | DILSF_NOTES /*.notes*/
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_NOTES;
     }
     | DILSF_HELP /*.help*/
     {
         INITEXP($$);
-        $$.rtyp = DILV_ZP;
-        $$.typ = DILV_SP;
+        $$.rtyp = DilVarType_e::DILV_ZP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_LFT;
         $$.num = DILF_HELP;
     }
     | DILSF_QST /* .quests */
     {
         INITEXP($$);
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_EDP;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_EDP;
         $$.dsl = DSL_DYN;
         $$.num = DILF_QST;
     }
@@ -2159,8 +2160,8 @@ field   : idx
     {
         INITEXP($$);
         copy_code(&($$), &($2));
-        $$.rtyp = DILV_UP;
-        $$.typ = DILV_INT;
+        $$.rtyp = DilVarType_e::DILV_UP;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = DSL_LFT;
         $$.num = DILF_SKL;
         FREEEXP($2);
@@ -2234,25 +2235,25 @@ dilexp  : dilsexp
              * appropiate pointer/string function identifier
              * where appropriate.
              */
-            case DILV_INT:
+            case DilVarType_e::DILV_INT:
             {
-                if ($3.typ != DILV_INT)
+                if ($3.typ != DilVarType_e::DILV_INT)
                 {
                     dilfatal("Arg 2 of integer comparison not integer");
                 }
             }
             break;
-            case DILV_NULL:
-            case DILV_UP:
-            case DILV_CP:
-            case DILV_ZP:
-            case DILV_EDP:
-            case DILV_ILP:
-            case DILV_SLP:
+            case DilVarType_e::DILV_NULL:
+            case DilVarType_e::DILV_UP:
+            case DilVarType_e::DILV_CP:
+            case DilVarType_e::DILV_ZP:
+            case DilVarType_e::DILV_EDP:
+            case DilVarType_e::DILV_ILP:
+            case DilVarType_e::DILV_SLP:
             {
                 if (($1.typ != $3.typ)
-                    && ($1.typ != DILV_NULL)
-                    && ($3.typ != DILV_NULL))
+                    && ($1.typ != DilVarType_e::DILV_NULL)
+                    && ($3.typ != DilVarType_e::DILV_NULL))
                 {
                     dilfatal("Argument of pointer compare not of same type.");
                 }
@@ -2266,9 +2267,9 @@ dilexp  : dilsexp
                 }
             }
             break;
-            case DILV_SP:
+            case DilVarType_e::DILV_SP:
             {
-                if ($3.typ == DILV_NULL)
+                if ($3.typ == DilVarType_e::DILV_NULL)
                 {
                     if ($2 == DILE_NE)
                     {
@@ -2280,7 +2281,7 @@ dilexp  : dilsexp
                     }
                     break;
                 }
-                if ($3.typ != DILV_SP)
+                if ($3.typ != DilVarType_e::DILV_SP)
                 {
                     dilfatal("Arg 2 of string comp. not a string");
                 }
@@ -2311,7 +2312,7 @@ dilexp  : dilsexp
         add_code(&($$), &($3));
         add_ubit8(&($$), $2);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         FREEEXP($1);
         FREEEXP($3);
     }
@@ -2321,17 +2322,17 @@ dilexp  : dilsexp
         $$.boolean = 1;
         switch ($1.typ)
         {
-            case DILV_INT:
+            case DilVarType_e::DILV_INT:
             {
-                if ($3.typ != DILV_INT)
+                if ($3.typ != DilVarType_e::DILV_INT)
                 {
                     dilfatal("Arg 2 of integer comparison not integer");
                 }
             }
             break;
-            case DILV_SP:
+            case DilVarType_e::DILV_SP:
             {
-                if (($3.typ != DILV_SP) && ($3.typ != DILV_NULL))
+                if (($3.typ != DilVarType_e::DILV_SP) && ($3.typ != DilVarType_e::DILV_NULL))
                 {
                     dilfatal("Arg 2 of string comp. not a string");
                 }
@@ -2371,7 +2372,7 @@ dilexp  : dilsexp
         add_code(&($$), &($3));
         add_ubit8(&($$), $2);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
 
         FREEEXP($1);
         FREEEXP($3);
@@ -2382,16 +2383,16 @@ dilexp  : dilsexp
         $$.boolean = 1;
         switch ($1.typ)
         {
-            case DILV_NULL:
-            case DILV_UP:
-            case DILV_SP:
-            case DILV_EDP:
-            case DILV_ILP:
-            case DILV_SLP:
+            case DilVarType_e::DILV_NULL:
+            case DilVarType_e::DILV_UP:
+            case DilVarType_e::DILV_SP:
+            case DilVarType_e::DILV_EDP:
+            case DilVarType_e::DILV_ILP:
+            case DilVarType_e::DILV_SLP:
             {
                 if (($1.typ != $3.typ)
-                    && ($1.typ != DILV_NULL)
-                    && ($3.typ != DILV_NULL))
+                    && ($1.typ != DilVarType_e::DILV_NULL)
+                    && ($3.typ != DilVarType_e::DILV_NULL))
                 {
                     dilfatal("Argument of pointer compare not of same type.");
                 }
@@ -2403,7 +2404,7 @@ dilexp  : dilsexp
                     add_code(&($$), &($3));
                     add_ubit8(&($$), $2); /* compare funct */
                     $$.dsl = DSL_DYN;
-                    $$.typ = DILV_INT;
+                    $$.typ = DilVarType_e::DILV_INT;
                 }
             }
             break;
@@ -2421,11 +2422,11 @@ dilexp  : dilsexp
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($1.typ != DILV_SP)
+        if ($1.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of string comp. not a string");
         }
-        else if ($1.typ != DILV_SP)
+        else if ($1.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of string comp. not a string");
         }
@@ -2439,7 +2440,7 @@ dilexp  : dilsexp
             add_code(&($$), &($3));
             add_ubit8(&($$), $2); /* compare funct */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
         }
         FREEEXP($1);
         FREEEXP($3);
@@ -2458,14 +2459,14 @@ dilsexp : dilterm
     {
         INITEXP($$);
         $$.boolean = $2.boolean;
-        if ($2.typ != DILV_INT)
+        if ($2.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'unary -' not integer");
         }
         else
         {
             /* Type is ok */
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             $$.dsl = $2.dsl;
             if (!$2.dsl)
             {
@@ -2483,7 +2484,7 @@ dilsexp : dilterm
     {
         INITEXP($$);
         $$.boolean = $2.boolean;
-        if ($2.typ != DILV_INT)
+        if ($2.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'unary +' not integer");
         }
@@ -2498,20 +2499,20 @@ dilsexp : dilterm
     {
         INITEXP($$);
         $$.boolean = $1.boolean || $3.boolean;
-        if ($1.typ != DILV_INT)
+        if ($1.typ != DilVarType_e::DILV_INT)
         {
-            if ($1.typ != DILV_SP)
+            if ($1.typ != DilVarType_e::DILV_SP)
             {
                 dilfatal("Arg 1 of '+' not integer or string");
             }
-            else if ($3.typ != DILV_SP)
+            else if ($3.typ != DilVarType_e::DILV_SP)
             {
                 dilfatal("Arg 2 of '+' not string");
             }
             else
             {
                 /* Type is SP + SP */
-                $$.typ = DILV_SP;
+                $$.typ = DilVarType_e::DILV_SP;
                 if (!($1.dsl + $3.dsl))
                 {
                     /* both static */
@@ -2531,14 +2532,14 @@ dilsexp : dilterm
                 }
             }
         }
-        else if ($3.typ != DILV_INT)
+        else if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of '+' not integer");
         }
         else
         {
             /* Type is INT + INT */
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             if (!($1.dsl + $3.typ))
             {
                 $$.num = $1.num + $3.num;
@@ -2562,18 +2563,18 @@ dilsexp : dilterm
     {
         INITEXP($$);
         $$.boolean = $1.boolean || $3.boolean;
-        if ($1.typ != DILV_INT)
+        if ($1.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of '-' not integer");
         }
-        else if ($3.typ != DILV_INT)
+        else if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of '-' not integer");
         }
         else
         {
             /* Type is ok */
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             if (!($1.dsl + $3.dsl))
             {
                 $$.num = $1.num - $3.num;
@@ -2598,10 +2599,10 @@ dilsexp : dilterm
         INITEXP($$);
         $$.boolean = 1;
         /* Type is ok */
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         if (!($1.dsl + $3.dsl)
-            && ($1.typ == DILV_INT)
-            && ($3.typ == DILV_INT))
+            && ($1.typ == DilVarType_e::DILV_INT)
+            && ($3.typ == DilVarType_e::DILV_INT))
         {
             /* static integers */
             $$.num = $1.num || $3.num;
@@ -2625,10 +2626,10 @@ dilsexp : dilterm
         INITEXP($$);
         $$.boolean = $1.boolean || $3.boolean;
         /* Type is ok */
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         if (!($1.dsl + $3.dsl)
-            && ($1.typ == DILV_INT)
-            && ($3.typ == DILV_INT))
+            && ($1.typ == DilVarType_e::DILV_INT)
+            && ($3.typ == DilVarType_e::DILV_INT))
         {
             /* static integers */
             $$.num = $1.num | $3.num;
@@ -2661,18 +2662,18 @@ dilterm : dilfactor
     {
         INITEXP($$);
         $$.boolean = $1.boolean || $3.boolean;
-        if ($1.typ != DILV_INT)
+        if ($1.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of '*' not integer");
         }
-        else if ($3.typ != DILV_INT)
+        else if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of '*' not integer");
         }
         else
         {
             /* Type is ok */
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             if (!($1.dsl + $3.dsl))
             {
                 /* Both values are static */
@@ -2697,18 +2698,18 @@ dilterm : dilfactor
     {
         INITEXP($$);
         $$.boolean = $1.boolean || $3.boolean;
-        if ($1.typ != DILV_INT)
+        if ($1.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of '/' not integer");
         }
-        else if ($3.typ != DILV_INT)
+        else if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of '/' not integer");
         }
         else
         {
             /* Type is ok */
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             if (!($1.dsl + $3.dsl))
             {
                 $$.dsl = DSL_STA;
@@ -2733,10 +2734,10 @@ dilterm : dilfactor
         INITEXP($$);
         $$.boolean = 1;
         /* Type is ok */
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         if (!($1.dsl + $3.dsl)
-            && ($1.typ == DILV_INT)
-            && ($3.typ == DILV_INT))
+            && ($1.typ == DilVarType_e::DILV_INT)
+            && ($3.typ == DilVarType_e::DILV_INT))
         {
             $$.dsl = DSL_STA;
             $$.num = $1.num && $3.num;
@@ -2759,10 +2760,10 @@ dilterm : dilfactor
         INITEXP($$);
         $$.boolean = $1.boolean || $3.boolean;
         /* Type is ok */
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         if (!($1.dsl + $3.dsl)
-            && ($1.typ == DILV_INT)
-            && ($3.typ == DILV_INT))
+            && ($1.typ == DilVarType_e::DILV_INT)
+            && ($3.typ == DilVarType_e::DILV_INT))
         {
             $$.dsl = DSL_STA;
             $$.num = $1.num & $3.num;
@@ -2784,18 +2785,18 @@ dilterm : dilfactor
     {
         INITEXP($$);
         $$.boolean = $1.boolean || $3.boolean;
-        if ($1.typ != DILV_INT)
+        if ($1.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of '%' not integer");
         }
-        else if ($3.typ != DILV_INT)
+        else if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of '%' not integer");
         }
         else
         {
             /* Type is ok */
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             if (!($1.dsl + $3.dsl))
             {
                 $$.dsl = DSL_STA;
@@ -2819,13 +2820,13 @@ dilterm : dilfactor
     {
         INITEXP($$);
         $$.boolean = $1.boolean || $3.boolean;
-        if ($1.typ != DILV_SP)
+        if ($1.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'in' not string");
         }
-        else if (($3.typ != DILV_EDP)
-                 && ($3.typ != DILV_SLP)
-                 && ($3.typ != DILV_SP))
+        else if (($3.typ != DilVarType_e::DILV_EDP)
+                 && ($3.typ != DilVarType_e::DILV_SLP)
+                 && ($3.typ != DilVarType_e::DILV_SP))
         {
             dilfatal("Arg 2 of 'in' not string, string list or extra description");
         }
@@ -2836,23 +2837,26 @@ dilterm : dilfactor
             $$.dsl = DSL_DYN;
             switch ($3.typ)
             {
-                case DILV_SLP:
+                case DilVarType_e::DILV_SLP:
                 {
-                    $$.typ = DILV_INT;
+                    $$.typ = DilVarType_e::DILV_INT;
                 }
                 break;
 
-                case DILV_EDP:
+                case DilVarType_e::DILV_EDP:
                 {
-                    $$.typ = DILV_EDP;
+                    $$.typ = DilVarType_e::DILV_EDP;
                 }
                 break;
 
-                case DILV_SP:
+                case DilVarType_e::DILV_SP:
                 {
-                    $$.typ = DILV_INT;
+                    $$.typ = DilVarType_e::DILV_INT;
                 }
                 break;
+
+                default:
+                    break;
             }
             make_code(&($1));
             make_code(&($3));
@@ -2884,7 +2888,7 @@ dilfactor   : '(' dilexp ')'
     {
         INITEXP($$);
         $$.dsl = DSL_STA;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.num = $1;
     }
     | STRING
@@ -2892,7 +2896,7 @@ dilfactor   : '(' dilexp ')'
         INITEXP($$);
         /*            if (*$1) { */
         /* Strings are now static */
-        $$.typ = DILV_SP;
+        $$.typ = DilVarType_e::DILV_SP;
         $$.dsl = DSL_STA;
         add_ubit8(&($$), DILE_FS);
         add_string(&($$), $1);
@@ -2904,7 +2908,7 @@ dilfactor   : '(' dilexp ')'
         INITEXP($$);
         /* write stringlist _NOT_ static */
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_SLP;
+        $$.typ = DilVarType_e::DILV_SLP;
         add_ubit8(&($$), DILE_FSL);
         add_stringlist(&($$), $1);
         delete ($1);
@@ -2914,14 +2918,14 @@ dilfactor   : '(' dilexp ')'
         INITEXP($$);
         /* write stringlist _NOT_ static */
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_ILP;
+        $$.typ = DilVarType_e::DILV_ILP;
         add_ubit8(&($$), DILE_FIL);
         add_intlist(&($$), $1);
     }
     | DILSE_NULL
     {
         INITEXP($$);
-        $$.typ = DILV_NULL;
+        $$.typ = DilVarType_e::DILV_NULL;
         $$.dsl = DSL_STA;
         $$.num = 0;
     }
@@ -2939,9 +2943,9 @@ dilfactor   : '(' dilexp ')'
         INITEXP($$);
         $$.boolean = 1;
         /* Type is ok */
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
         $$.dsl = $2.dsl;
-        if (!$2.dsl && $2.typ == DILV_INT)
+        if (!$2.dsl && $2.typ == DilVarType_e::DILV_INT)
         {
             $$.num = !$2.num;
         }
@@ -2965,7 +2969,7 @@ dilfun  :  funcall
     | DILSE_ATOI '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'atoi' not string");
         }
@@ -2974,7 +2978,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Function is not _yet_ static */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_ATOI);
@@ -2985,7 +2989,7 @@ dilfun  :  funcall
     | DILSE_ISPLAYER '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'isplayer' not string");
         }
@@ -2994,7 +2998,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Function is not _yet_ static */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_ISPLAYER);
@@ -3004,7 +3008,7 @@ dilfun  :  funcall
     | DILSE_SHELL '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'shell' not string");
         }
@@ -3013,7 +3017,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Function is not _yet_ static */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_PLAYERID);
@@ -3023,11 +3027,11 @@ dilfun  :  funcall
     | DILSE_DLD '(' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'dildestroy' not string");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'dildestroy' not unitptr");
         }
@@ -3036,7 +3040,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3052,19 +3056,19 @@ dilfun  :  funcall
         // I don't have the time right now.
         //
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'dilcall' not a string");
         }
-        else if ($6.typ != DILV_UP)
+        else if ($6.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'dilcall' not a unitptr");
         }
-        else if ($8.typ != DILV_INT)
+        else if ($8.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'dilcall' not an integer");
         }
-        else if ($10.typ != DILV_SP)
+        else if ($10.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 4 of 'dilcall' not a string");
         }
@@ -3073,7 +3077,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($6));
             make_code(&($8));
@@ -3092,11 +3096,11 @@ dilfun  :  funcall
     | DILSE_DLF '(' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'dilfind' not string");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'dilfind' not unitptr");
         }
@@ -3105,7 +3109,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3118,9 +3122,9 @@ dilfun  :  funcall
     | DILSE_LEN '(' dilexp ')'
     {
         INITEXP($$);
-        if (($3.typ != DILV_SP)
-            && ($3.typ != DILV_SLP)
-            && ($3.typ != DILV_ILP))
+        if (($3.typ != DilVarType_e::DILV_SP)
+            && ($3.typ != DilVarType_e::DILV_SLP)
+            && ($3.typ != DilVarType_e::DILV_ILP))
         {
             dilfatal("Arg 1 of 'length' not string, stringlist, or intlist");
         }
@@ -3129,7 +3133,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Function is not _yet_ static */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_LEN);
@@ -3139,7 +3143,7 @@ dilfun  :  funcall
     | DILSE_ITOA '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'itoa' not integer");
         }
@@ -3148,7 +3152,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Function is not _yet_ static */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_ITOA);
@@ -3158,7 +3162,7 @@ dilfun  :  funcall
     | DILSE_WPNTXT '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'weapon_name' not integer");
         }
@@ -3167,7 +3171,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Function is not _yet_ static */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_WPNTXT);
@@ -3177,7 +3181,7 @@ dilfun  :  funcall
     | DILSE_SKITXT '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'skill_name' not integer");
         }
@@ -3186,7 +3190,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Function is not _yet_ static */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_SKITXT);
@@ -3202,33 +3206,33 @@ dilfun  :  funcall
         INITEXP($$)
         checkbool("argument 2 of act", $5.boolean);
         checkbool("argument 6 of act", $13.boolean);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'act' not a string");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'act' not an integer");
         }
-        else if ($7.typ != DILV_NULL
-                 && $7.typ != DILV_SP
-                 && $7.typ != DILV_UP)
+        else if ($7.typ != DilVarType_e::DILV_NULL
+                 && $7.typ != DilVarType_e::DILV_SP
+                 && $7.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 3 of 'act' not a unit or string");
         }
-        else if ($9.typ != DILV_NULL
-                 && $9.typ != DILV_SP
-                 && $9.typ != DILV_UP)
+        else if ($9.typ != DilVarType_e::DILV_NULL
+                 && $9.typ != DilVarType_e::DILV_SP
+                 && $9.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 4 of 'act' not a unit or string");
         }
-        else if ($11.typ != DILV_NULL
-                 && $11.typ != DILV_SP
-                 && $11.typ != DILV_UP)
+        else if ($11.typ != DilVarType_e::DILV_NULL
+                 && $11.typ != DilVarType_e::DILV_SP
+                 && $11.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 5 of 'act' not a unit or string");
         }
-        else if ($13.typ != DILV_INT)
+        else if ($13.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 6 of 'act' not an integer");
         }
@@ -3236,7 +3240,7 @@ dilfun  :  funcall
         {
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
 
             make_code(&($3));
             make_code(&($5));
@@ -3257,11 +3261,11 @@ dilfun  :  funcall
     | DILSE_RND '(' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'rnd' not integer");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'rnd' not integer");
         }
@@ -3270,7 +3274,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3284,11 +3288,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'isset' not integer");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'isset' not integer");
         }
@@ -3298,7 +3302,7 @@ dilfun  :  funcall
             /* Function is not _yet_ static */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3312,11 +3316,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'strcmp' not string");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'strcmp' not string");
         }
@@ -3326,7 +3330,7 @@ dilfun  :  funcall
             /* Function is not _yet_ static */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3340,15 +3344,15 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'strncmp' not string");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'strncmp' not string");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'strncmp' not integer");
         }
@@ -3358,7 +3362,7 @@ dilfun  :  funcall
             /* Function is not _yet_ static */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -3375,11 +3379,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'isaff' not a unit");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'isaff' not integer");
         }
@@ -3388,7 +3392,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3402,23 +3406,23 @@ dilfun  :  funcall
     {
         INITEXP($$);
         checkbool("argument 3 of findunit", $7.boolean);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'findunit' not a unit");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'findunit' not a string");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'findunit' not integer");
         }
-        else if ($9.typ != DILV_UP && $9.typ != DILV_NULL)
+        else if ($9.typ != DilVarType_e::DILV_UP && $9.typ != DilVarType_e::DILV_NULL)
         {
             dilfatal("Arg 4 of 'findunit' not unit");
         }
-        else if ($11.typ != DILV_INT)
+        else if ($11.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 5 of 'findunit' not integer");
         }
@@ -3427,7 +3431,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -3450,19 +3454,19 @@ dilfun  :  funcall
     {
         INITEXP($$);
         checkbool("argument 3 of findunit", $7.boolean);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'findunit' not a unit");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'findunit' not a string");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'findunit' not integer");
         }
-        else if ($9.typ != DILV_UP && $9.typ != DILV_NULL)
+        else if ($9.typ != DilVarType_e::DILV_UP && $9.typ != DilVarType_e::DILV_NULL)
         {
             dilfatal("Arg 4 of 'findunit' not unit");
         }
@@ -3471,7 +3475,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -3491,64 +3495,64 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_GHEAD);
     }
     | DILSE_PHEAD '(' ')'
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_PHEAD);
     }
     | DILSE_RHEAD '(' ')'
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_RHEAD);
     }
     | DILSE_NHEAD '(' ')'
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_NHEAD);
     }
     | DILSE_OHEAD '(' ')'
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_UP;
+        $$.typ = DilVarType_e::DILV_UP;
         add_ubit8(&($$), DILE_OHEAD);
     }
     | DILSE_ZHEAD '(' ')'
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_ZP;
+        $$.typ = DilVarType_e::DILV_ZP;
         add_ubit8(&($$), DILE_ZHEAD);
     }
     | DILSE_CHEAD '(' ')'
     {
         INITEXP($$);
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_CP;
+        $$.typ = DilVarType_e::DILV_CP;
         add_ubit8(&($$), DILE_CHEAD);
     }
     | DILSE_FNDRU '(' dilexp ',' dilexp ',' dilexp ')'
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'findrndunit' not an unitptr.");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'findrndunit' not an integer.");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'findrndunit' not an integer");
         }
@@ -3557,7 +3561,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -3573,7 +3577,7 @@ dilfun  :  funcall
     | DILSE_WEPINFO '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'weapon_info' not integer");
         }
@@ -3582,7 +3586,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_ILP;
+            $$.typ = DilVarType_e::DILV_ILP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_WEPINFO);
@@ -3592,7 +3596,7 @@ dilfun  :  funcall
     | DILSE_FNDR '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'findroom' not string");
         }
@@ -3601,7 +3605,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_FNDR);
@@ -3611,7 +3615,7 @@ dilfun  :  funcall
     | DILSE_FNDZ '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'findzone' not string");
         }
@@ -3620,7 +3624,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_ZP;
+            $$.typ = DilVarType_e::DILV_ZP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_FNDZ);
@@ -3630,7 +3634,7 @@ dilfun  :  funcall
     | DILSE_FNDS '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'findsymbolic' not string");
         }
@@ -3639,7 +3643,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_FNDS);
@@ -3649,11 +3653,11 @@ dilfun  :  funcall
     | DILSE_FNDS '(' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'findsymbolic' not string");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'findsymbolic' not an integer (idx)");
         }
@@ -3662,7 +3666,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3674,15 +3678,15 @@ dilfun  :  funcall
     | DILSE_FNDS '(' dilexp ',' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'findsymbolic' not a unitptr");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'findsymbolic' not a string");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'findsymbolic' not an integer");
         }
@@ -3691,7 +3695,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -3708,11 +3712,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'visible' not a unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'visible' not a unitptr");
         }
@@ -3721,7 +3725,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3735,11 +3739,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'paycheck' not a unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'paycheck' not a unitptr");
         }
@@ -3748,7 +3752,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3762,11 +3766,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'opponent' not a unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'opponent' not a unitptr");
         }
@@ -3775,7 +3779,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3789,11 +3793,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'getopponent' not a unitptr");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'getopponent' not a integer");
         }
@@ -3802,7 +3806,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3816,11 +3820,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'getfollower' not a unitptr");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'getfollower' not a integer");
         }
@@ -3829,7 +3833,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3842,7 +3846,7 @@ dilfun  :  funcall
     | DILSE_SPLX '(' dilexp ')' /* spellindex */
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'spellindex' not a string");
         }
@@ -3851,7 +3855,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_SPLX);
@@ -3863,35 +3867,35 @@ dilfun  :  funcall
         INITEXP($$);
         $$.boolean = 1;
 
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'spellinfo' not an integer");
         }
-        else if ($5.typ != DILV_INT || $5.dsl != DSL_LFT)
+        else if ($5.typ != DilVarType_e::DILV_INT || $5.dsl != DSL_LFT)
         {
             dilfatal("Arg 2 of 'spellinfo' not an integer variable");
         }
-        else if ($7.typ != DILV_INT || $7.dsl != DSL_LFT)
+        else if ($7.typ != DilVarType_e::DILV_INT || $7.dsl != DSL_LFT)
         {
             dilfatal("Arg 3 of 'spellinfo' not an integer variable");
         }
-        else if ($9.typ != DILV_INT || $9.dsl != DSL_LFT)
+        else if ($9.typ != DilVarType_e::DILV_INT || $9.dsl != DSL_LFT)
         {
             dilfatal("Arg 4 of 'spellinfo' not an integer variable");
         }
-        else if ($11.typ != DILV_INT || $11.dsl != DSL_LFT)
+        else if ($11.typ != DilVarType_e::DILV_INT || $11.dsl != DSL_LFT)
         {
             dilfatal("Arg 5 of 'spellinfo' not an integer variable");
         }
-        else if ($13.typ != DILV_INT || $13.dsl != DSL_LFT)
+        else if ($13.typ != DilVarType_e::DILV_INT || $13.dsl != DSL_LFT)
         {
             dilfatal("Arg 6 of 'spellinfo' not an integer variable");
         }
-        else if ($15.typ != DILV_INT || $15.dsl != DSL_LFT)
+        else if ($15.typ != DilVarType_e::DILV_INT || $15.dsl != DSL_LFT)
         {
             dilfatal("Arg 7 of 'spellinfo' not an integer variable");
         }
-        else if ($17.typ != DILV_INT || $17.dsl != DSL_LFT)
+        else if ($17.typ != DilVarType_e::DILV_INT || $17.dsl != DSL_LFT)
         {
             dilfatal("Arg 8 of 'spellinfo' not an integer variable");
         }
@@ -3900,7 +3904,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
 
             make_code(&($3));
             make_code(&($5));
@@ -3933,11 +3937,11 @@ dilfun  :  funcall
     | DILSE_MONS '(' dilexp ',' dilexp ')' /* moneystring */
     {
         INITEXP($$);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'money_string' not an integer");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'money_string' not a boolean");
         }
@@ -3946,7 +3950,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3959,11 +3963,11 @@ dilfun  :  funcall
     | DILSE_PATH '(' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'pathto' not a unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'pathto' not a unitptr");
         }
@@ -3972,7 +3976,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -3987,15 +3991,15 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'can_carry' not a unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'can_carry' not a unitptr");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'can_carry' not an integer");
         }
@@ -4004,7 +4008,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -4020,7 +4024,7 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'getcolor' not a string");
         }
@@ -4029,7 +4033,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_GETCLR);
@@ -4040,38 +4044,38 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'send_pre' not a string");
         }
-        else if ($5.typ != DILV_NULL && $5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_NULL && $5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'send_pre' not an unit pointer");
         }
-        else if ($7.typ != DILV_NULL && $7.typ != DILV_UP)
+        else if ($7.typ != DilVarType_e::DILV_NULL && $7.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 3 of 'send_pre' not an unit pointer");
         }
-        else if ($9.typ != DILV_NULL && $9.typ != DILV_UP)
+        else if ($9.typ != DilVarType_e::DILV_NULL && $9.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 4 of 'send_pre' not an unit pointer");
         }
-        else if ($11.typ != DILV_INT)
+        else if ($11.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 5 of 'send_pre' not an integer");
         }
-        else if ($13.typ != DILV_SP)
+        else if ($13.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 6 of 'send_pre' not a string");
         }
-        else if ($15.typ != DILV_NULL && $15.typ != DILV_UP)
+        else if ($15.typ != DilVarType_e::DILV_NULL && $15.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 7 of 'send_pre' not an unit pointer");
         }
         else
         {
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -4099,15 +4103,15 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'addcolor' not a unitptr");
         }
-        if ($5.typ != DILV_SP)
+        if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'addcolor' not a string");
         }
-        if ($7.typ != DILV_SP)
+        if ($7.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 3 of 'addcolor' not a string");
         }
@@ -4116,7 +4120,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -4132,15 +4136,15 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'changecolor' not a unitptr");
         }
-        if ($5.typ != DILV_SP)
+        if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'changecolor' not a string");
         }
-        if ($7.typ != DILV_SP)
+        if ($7.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 3 of 'changecolor' not a string");
         }
@@ -4149,7 +4153,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -4165,11 +4169,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'delcolor' not a unitptr");
         }
-        if ($5.typ != DILV_SP)
+        if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'delcolor' not a string");
         }
@@ -4178,7 +4182,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -4191,11 +4195,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'check_password' not a unitptr");
         }
-        if ($5.typ != DILV_SP)
+        if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'check_password' not a string");
         }
@@ -4204,7 +4208,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -4217,7 +4221,7 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'islight' not a unitptr");
         }
@@ -4226,7 +4230,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_ISLT);
@@ -4237,15 +4241,15 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'replace' not a string.");
         }
-        if ($5.typ != DILV_SP)
+        if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'replace' not a string.");
         }
-        if ($7.typ != DILV_SP)
+        if ($7.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 3 of 'replace' not a string.");
         }
@@ -4254,7 +4258,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -4271,15 +4275,15 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'mid' not a string.");
         }
-        if ($5.typ != DILV_INT)
+        if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'mid' not an integer.");
         }
-        if ($7.typ != DILV_INT)
+        if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'mid' not an integer.");
         }
@@ -4288,7 +4292,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -4303,7 +4307,7 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'tolower' not a string.");
         }
@@ -4312,7 +4316,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_TOLOWER);
@@ -4323,7 +4327,7 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'toupper' not a string.");
         }
@@ -4332,7 +4336,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_TOUPPER);
@@ -4343,11 +4347,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'left' not a string.");
         }
-        if ($5.typ != DILV_INT)
+        if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'left' not an integer.");
         }
@@ -4356,7 +4360,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -4369,11 +4373,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'right' not a string.");
         }
-        if ($5.typ != DILV_INT)
+        if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'right' not an integer.");
         }
@@ -4382,7 +4386,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -4395,11 +4399,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'purse' not a unitptr");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'purse' not a string");
         }
@@ -4408,7 +4412,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             add_code(&($$), &($3));
@@ -4422,15 +4426,15 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if (($3.typ != DILV_UP) && ($3.typ != DILV_NULL))
+        if (($3.typ != DilVarType_e::DILV_UP) && ($3.typ != DilVarType_e::DILV_NULL))
         {
             dilfatal("Arg 1 of 'transfermoney' not a unitptr");
         }
-        else if (($5.typ != DILV_UP) && ($5.typ != DILV_NULL))
+        else if (($5.typ != DilVarType_e::DILV_UP) && ($5.typ != DilVarType_e::DILV_NULL))
         {
             dilfatal("Arg 2 of 'transfermoney' not a unitptr");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'transfermoney' not an integer");
         }
@@ -4439,7 +4443,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -4455,7 +4459,7 @@ dilfun  :  funcall
     | DILSE_GETCMD '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'getcmd' not name string");
         }
@@ -4464,7 +4468,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_CP;
+            $$.typ = DilVarType_e::DILV_CP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_GETCMD);
@@ -4474,7 +4478,7 @@ dilfun  :  funcall
     | DILSE_LOAD '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'load' not name string");
         }
@@ -4483,7 +4487,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_LOAD);
@@ -4493,7 +4497,7 @@ dilfun  :  funcall
     | DILSE_CLONE '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'clone' not unit pointer");
         }
@@ -4502,7 +4506,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_CLONE);
@@ -4514,27 +4518,27 @@ dilfun  :  funcall
         INITEXP($$);
         checkbool("argument 1 of attack_spell", $3.boolean);
 
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'attack_spell' not a number");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'attack_spell' not a unitptr");
         }
-        else if ($7.typ != DILV_UP)
+        else if ($7.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 3 of 'attack_spell' not a unitptr");
         }
-        else if ($9.typ != DILV_UP)
+        else if ($9.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 4 of 'attack_spell' not a unitptr");
         }
-        else if ($11.typ != DILV_INT)
+        else if ($11.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 5 of 'attack_spell' not an integer");
         }
-        else if (($13.typ != DILV_SP) && ($13.typ != DILV_NULL))
+        else if (($13.typ != DilVarType_e::DILV_SP) && ($13.typ != DilVarType_e::DILV_NULL))
         {
             dilfatal("Arg 6 of 'attack_spell' not an string or null");
         }
@@ -4543,7 +4547,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
 
             make_code(&($3));
             make_code(&($5));
@@ -4573,23 +4577,23 @@ dilfun  :  funcall
         INITEXP($$);
         checkbool("argument 1 of cast", $3.boolean);
 
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'cast_spell' not a number");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'cast_spell' not a unitptr");
         }
-        else if ($7.typ != DILV_UP)
+        else if ($7.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 3 of 'cast_spell' not a unitptr");
         }
-        else if ($9.typ != DILV_UP)
+        else if ($9.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 4 of 'cast_spell' not a unitptr");
         }
-        else if ($11.typ != DILV_SP)
+        else if ($11.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 5 of 'cast_spell' not a string");
         }
@@ -4598,7 +4602,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
 
             make_code(&($3));
             make_code(&($5));
@@ -4624,15 +4628,15 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'fits' not an unitptr.");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'fits' not an unitptr.");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'fits' not an integer.");
         }
@@ -4641,7 +4645,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
 
             make_code(&($3));
             make_code(&($5));
@@ -4661,11 +4665,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'restore' not a string");
         }
-        else if ($5.typ != DILV_UP && $5.typ != DILV_NULL)
+        else if ($5.typ != DilVarType_e::DILV_UP && $5.typ != DilVarType_e::DILV_NULL)
         {
             dilfatal("Arg 2 of 'restore' not a unitptr or null");
         }
@@ -4674,7 +4678,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
 
             make_code(&($3));
             make_code(&($5));
@@ -4691,7 +4695,7 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'delstr' not a string");
         }
@@ -4700,7 +4704,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
 
             make_code(&($3));
             add_code(&($$), &($3));
@@ -4713,7 +4717,7 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'delunit' not a string");
         }
@@ -4722,7 +4726,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
 
             make_code(&($3));
             add_code(&($$), &($3));
@@ -4735,11 +4739,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'openroll' not an integer");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'openroll' not an integer");
         }
@@ -4748,7 +4752,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
 
             make_code(&($3));
             make_code(&($5));
@@ -4765,11 +4769,11 @@ dilfun  :  funcall
     {
         INITEXP($$);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'equipment' not a unitptr");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'equipment' not a unitptr");
         }
@@ -4778,7 +4782,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_UP;
+            $$.typ = DilVarType_e::DILV_UP;
 
             make_code(&($3));
             make_code(&($5));
@@ -4796,19 +4800,19 @@ dilfun  :  funcall
         INITEXP($$);
         checkbool("argument 1 of MeleeAttack", $3.boolean);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'MeleeAttack' not a unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'MeleeAttack' not a unitptr");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'MeleeAttack' not an integer");
         }
-        else if ($9.typ != DILV_INT)
+        else if ($9.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 4 of 'MeleeAttack' not an integer");
         }
@@ -4817,7 +4821,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
 
             make_code(&($3));
             make_code(&($5));
@@ -4841,19 +4845,19 @@ dilfun  :  funcall
         INITEXP($$);
         checkbool("argument 1 of MeleeAttack", $3.boolean);
 
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'MeleeAttack' not a unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'MeleeAttack' not a unitptr");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'MeleeAttack' not an integer");
         }
-        else if ($9.typ != DILV_INT)
+        else if ($9.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 4 of 'MeleeAttack' not an integer");
         }
@@ -4862,7 +4866,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
 
             make_code(&($3));
             make_code(&($5));
@@ -4884,7 +4888,7 @@ dilfun  :  funcall
     | DILSE_TXF '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'textformat' not string variable");
         }
@@ -4893,7 +4897,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_TXF);
         }
@@ -4904,33 +4908,33 @@ dilfun  :  funcall
         INITEXP($$)
         checkbool("argument 2 of act", $5.boolean);
         checkbool("argument 6 of act", $13.boolean);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'act' not a string");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'act' not an integer");
         }
-        else if ($7.typ != DILV_NULL
-                 && $7.typ != DILV_SP
-                 && $7.typ != DILV_UP)
+        else if ($7.typ != DilVarType_e::DILV_NULL
+                 && $7.typ != DilVarType_e::DILV_SP
+                 && $7.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 3 of 'act' not a unit or string");
         }
-        else if ($9.typ != DILV_NULL
-                 && $9.typ != DILV_SP
-                 && $9.typ != DILV_UP)
+        else if ($9.typ != DilVarType_e::DILV_NULL
+                 && $9.typ != DilVarType_e::DILV_SP
+                 && $9.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 4 of 'act' not a unit or string");
         }
-        else if ($11.typ != DILV_NULL
-                 && $11.typ != DILV_SP
-                 && $11.typ != DILV_UP)
+        else if ($11.typ != DilVarType_e::DILV_NULL
+                 && $11.typ != DilVarType_e::DILV_SP
+                 && $11.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 5 of 'act' not a unit or string");
         }
-        else if ($13.typ != DILV_INT)
+        else if ($13.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 6 of 'act' not an integer");
         }
@@ -4938,7 +4942,7 @@ dilfun  :  funcall
         {
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
 
             make_code(&($3));
             make_code(&($5));
@@ -4959,15 +4963,15 @@ dilfun  :  funcall
     | DILSE_GINT '(' dilexp ',' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'getinteger' not integer");
         }
-        else if (($5.typ != DILV_UP) && ($5.typ != DILV_NULL))
+        else if (($5.typ != DilVarType_e::DILV_UP) && ($5.typ != DilVarType_e::DILV_NULL))
         {
             dilfatal("Arg 2 of 'getinteger' not unitptr");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'getinteger' not integer");
         }
@@ -4976,7 +4980,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Function is not _yet_ static */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             make_code(&($5));
             make_code(&($7));
@@ -4992,7 +4996,7 @@ dilfun  :  funcall
     | DILSE_AST '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'asctime' not integer");
         }
@@ -5001,7 +5005,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_AST);
         }
@@ -5010,7 +5014,7 @@ dilfun  :  funcall
     | DILSE_GETW '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'getword' not string variable");
         }
@@ -5019,7 +5023,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SP;
+            $$.typ = DilVarType_e::DILV_SP;
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_GETW);
         }
@@ -5028,7 +5032,7 @@ dilfun  :  funcall
     | DILSE_GETWS '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'getwords' not string");
         }
@@ -5037,7 +5041,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SLP;
+            $$.typ = DilVarType_e::DILV_SLP;
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_GETWS);
         }
@@ -5046,11 +5050,11 @@ dilfun  :  funcall
     | DILSE_SPLIT '(' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'split' not string");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'split' not string");
         }
@@ -5059,7 +5063,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SLP;
+            $$.typ = DilVarType_e::DILV_SLP;
             add_code(&($$), &($3));
             add_code(&($$), &($5));
             add_ubit8(&($$), DILE_SPLIT);
@@ -5070,7 +5074,7 @@ dilfun  :  funcall
     | DILSE_GETAFFECTS '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'getaffcets' not unitptr");
         }
@@ -5079,7 +5083,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SLP;
+            $$.typ = DilVarType_e::DILV_SLP;
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_GETAFFECTS);
         }
@@ -5088,7 +5092,7 @@ dilfun  :  funcall
     | DILSE_SDIR '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'strdir' not string");
         }
@@ -5097,7 +5101,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SLP;
+            $$.typ = DilVarType_e::DILV_SLP;
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_SDIR);
         }
@@ -5106,7 +5110,7 @@ dilfun  :  funcall
     | DILSE_UDIR '(' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'unitdir' not string");
         }
@@ -5115,7 +5119,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_SLP;
+            $$.typ = DilVarType_e::DILV_SLP;
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_UDIR);
         }
@@ -5124,15 +5128,15 @@ dilfun  :  funcall
     | DILSE_SVSTR '(' dilexp ',' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'savestr' not string");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'savestr' not string");
         }
-        else if ($7.typ != DILV_SP)
+        else if ($7.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 3 of 'savestr' not string");
         }
@@ -5141,7 +5145,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             add_code(&($$), &($3));
             add_code(&($$), &($5));
             add_code(&($$), &($7));
@@ -5154,11 +5158,11 @@ dilfun  :  funcall
     | DILSE_LDSTR '(' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'loadstr' not string");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'loadstr' not string");
         }
@@ -5167,7 +5171,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             add_code(&($$), &($3));
             add_code(&($$), &($5));
             add_ubit8(&($$), DILE_LDSTR);
@@ -5178,15 +5182,15 @@ dilfun  :  funcall
     | DILSE_FLOG '(' dilexp ',' dilexp ',' dilexp ')'
     {
         INITEXP($$);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'flog' not string");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'flog' not string");
         }
-        else if ($7.typ != DILV_SP)
+        else if ($7.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 3 of 'flog' not string");
         }
@@ -5195,7 +5199,7 @@ dilfun  :  funcall
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             add_code(&($$), &($3));
             add_code(&($$), &($5));
             add_code(&($$), &($7));
@@ -5209,22 +5213,22 @@ dilfun  :  funcall
     {
         INITEXP($$);
         $$.boolean = 1;
-        if ($3.typ == DILV_SP)
+        if ($3.typ == DilVarType_e::DILV_SP)
         {
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_CMDS);
         }
-        else if ($3.typ == DILV_INT)
+        else if ($3.typ == DilVarType_e::DILV_INT)
         {
             /* Type is ok */
             /* Make nodes dynamic */
             $$.dsl = DSL_DYN;
-            $$.typ = DILV_INT;
+            $$.typ = DilVarType_e::DILV_INT;
             make_code(&($3));
             add_code(&($$), &($3));
             add_ubit8(&($$), DILE_CMDS);
@@ -5328,7 +5332,7 @@ coreexp   : dilexp
         int i;
 
         /*          fprintf(stderr,"COREEXP\n");*/
-        if (($1.typ == DILV_PROC) || ($1.typ == DILV_FUNC))
+        if (($1.typ == DilVarType_e::DILV_PROC) || ($1.typ == DilVarType_e::DILV_FUNC))
         {
             dilfatal("Illegal use of proc/func");
         }
@@ -5445,7 +5449,7 @@ dilproc : corefuncall
     }
     | DILSI_CLI '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'clear' not an integer");
         }
@@ -5459,15 +5463,15 @@ dilproc : corefuncall
     }
     | DILSI_STORA '(' coreexp ',' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'store' not an unitptr");
         }
-        if ($5.typ != DILV_SP)
+        if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'store' not an string");
         }
-        if ($7.typ != DILV_INT)
+        if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'store' not an integer");
         }
@@ -5481,31 +5485,31 @@ dilproc : corefuncall
     }
     | DILSI_SNDDONE '(' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'send_done' not a string");
         }
-        else if ($5.typ != DILV_NULL && $5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_NULL && $5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'send_done' not an unit pointer");
         }
-        else if ($7.typ != DILV_NULL && $7.typ != DILV_UP)
+        else if ($7.typ != DilVarType_e::DILV_NULL && $7.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 3 of 'send_done' not an unit pointer");
         }
-        else if ($9.typ != DILV_NULL && $9.typ != DILV_UP)
+        else if ($9.typ != DilVarType_e::DILV_NULL && $9.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 4 of 'send_done' not an unit pointer");
         }
-        else if ($11.typ != DILV_INT)
+        else if ($11.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 5 of 'send_done' not an integer");
         }
-        else if ($13.typ != DILV_SP)
+        else if ($13.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 6 of 'send_done' not a string");
         }
-        else if ($15.typ != DILV_NULL && $15.typ != DILV_UP)
+        else if ($15.typ != DilVarType_e::DILV_NULL && $15.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 7 of 'send_done' not an unit pointer");
         }
@@ -5519,7 +5523,7 @@ dilproc : corefuncall
     }
     | DILSI_EDIT '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'beginedit' not an unitptr");
         }
@@ -5533,7 +5537,7 @@ dilproc : corefuncall
     }
     | DILSI_KEDIT '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'killedit' not an unitptr");
         }
@@ -5547,11 +5551,11 @@ dilproc : corefuncall
     }
     | DILSI_AMOD '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'acc_modify' not an unitptr");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'acc_modify' not an integer");
         }
@@ -5565,11 +5569,11 @@ dilproc : corefuncall
     }
     | DILSI_SETPWD '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'set_password' not an unitptr");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'set_password' not an integer");
         }
@@ -5583,7 +5587,7 @@ dilproc : corefuncall
     }
     | DILSI_DELPC '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'delete_player' not an string");
         }
@@ -5604,11 +5608,11 @@ dilproc : corefuncall
     }
     | DILSI_FOLO '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'follow' not an unitptr");
         }
-        else if (($5.typ != DILV_UP) && ($5.typ != DILV_NULL))
+        else if (($5.typ != DilVarType_e::DILV_UP) && ($5.typ != DilVarType_e::DILV_NULL))
         {
             dilfatal("Arg 2 of 'follow' not an unitptr");
         }
@@ -5622,11 +5626,11 @@ dilproc : corefuncall
     }
     | DILSI_STOPF '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'stop_fighting' not an unitptr");
         }
-        else if ($5.typ != DILV_UP && $5.typ != DILV_NULL)
+        else if ($5.typ != DilVarType_e::DILV_UP && $5.typ != DilVarType_e::DILV_NULL)
         {
             dilfatal("Arg 2 of 'stop_fighting' not an unitptr or null");
         }
@@ -5640,11 +5644,11 @@ dilproc : corefuncall
     }
     | DILSI_SETF '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'set_fighting' not an unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'set_fighting' not an unitptr");
         }
@@ -5659,11 +5663,11 @@ dilproc : corefuncall
     | DILSI_CHAS '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 2 of change_speed", $5.boolean);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'change_speed' not an unitptr");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'change_speed' not an integer");
         }
@@ -5678,11 +5682,11 @@ dilproc : corefuncall
     | DILSI_SBT '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 2 of setbright", $5.boolean);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'setbright' not an unitptr");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'setbright' not an integer");
         }
@@ -5697,11 +5701,11 @@ dilproc : corefuncall
     | DILSI_SET_W_BASE '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 2 of set_weight_base", $5.boolean);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'setweight' not an unitptr");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'setweight' not an integer");
         }
@@ -5716,11 +5720,11 @@ dilproc : corefuncall
     | DILSI_SET_W '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 2 of set_weight", $5.boolean);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'set_weight' not an unitptr");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'set_weight' not an integer");
         }
@@ -5734,7 +5738,7 @@ dilproc : corefuncall
     }
     | DILSI_DISPATCH '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'dispatch' not a string");
         }
@@ -5749,11 +5753,11 @@ dilproc : corefuncall
     | DILSI_SET '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 2 of set", $5.boolean);
-        if ($3.typ != DILV_INT || $3.dsl != DSL_LFT)
+        if ($3.typ != DilVarType_e::DILV_INT || $3.dsl != DSL_LFT)
         {
             dilfatal("Arg 1 of 'set' not an integer variable");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'set' not an integer");
         }
@@ -5767,11 +5771,11 @@ dilproc : corefuncall
     }
     | DILSI_DLC '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'dilcopy' not a string");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'dilcopy' not a unitptr");
         }
@@ -5785,11 +5789,11 @@ dilproc : corefuncall
     }
     | DILSI_PGSTR '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'pagestring' not a string");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'pagestring' not a unitptr");
         }
@@ -5803,11 +5807,11 @@ dilproc : corefuncall
     }
     | DILSI_SETE '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'sendtext' not a string");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'sendtext' not a unitptr");
         }
@@ -5822,11 +5826,11 @@ dilproc : corefuncall
     | DILSI_UST '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 2 of unset", $5.boolean);
-        if ($3.typ != DILV_INT || $3.dsl != DSL_LFT)
+        if ($3.typ != DilVarType_e::DILV_INT || $3.dsl != DSL_LFT)
         {
             dilfatal("Arg 1 of 'unset' not an integer variable");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'unset' not an integer");
         }
@@ -5840,15 +5844,15 @@ dilproc : corefuncall
     }
     | DILSI_ADE '(' coreexp ',' coreexp ',' coreexp ')' ihold
     {
-        if (($3.typ != DILV_EDP) || ($3.dsl != DSL_DYN))
+        if (($3.typ != DilVarType_e::DILV_EDP) || ($3.dsl != DSL_DYN))
         {
             dilfatal("Arg 1 of 'addextra' not a unit extra description");
         }
-        else if ($5.typ != DILV_SLP && $5.typ != DILV_NULL)
+        else if ($5.typ != DilVarType_e::DILV_SLP && $5.typ != DilVarType_e::DILV_NULL)
         {
             dilfatal("Arg 2 of 'addextra' not a stringlist");
         }
-        else if ($7.typ != DILV_SP)
+        else if ($7.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 3 of 'addextra' not a string");
         }
@@ -5862,19 +5866,19 @@ dilproc : corefuncall
     }
     | DILSI_ADE '(' coreexp ',' coreexp ',' coreexp ',' coreexp ')' ihold
     {
-        if (($3.typ != DILV_EDP) || ($3.dsl != DSL_DYN))
+        if (($3.typ != DilVarType_e::DILV_EDP) || ($3.dsl != DSL_DYN))
         {
             dilfatal("Arg 1 of 'addextra' not a unit extra description");
         }
-        else if ($5.typ != DILV_SLP && $5.typ != DILV_NULL)
+        else if ($5.typ != DilVarType_e::DILV_SLP && $5.typ != DilVarType_e::DILV_NULL)
         {
             dilfatal("Arg 2 of 'addextra' not a stringlist");
         }
-        else if ($7.typ != DILV_SP)
+        else if ($7.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 3 of 'addextra' not a string");
         }
-        else if ($9.typ != DILV_ILP)
+        else if ($9.typ != DilVarType_e::DILV_ILP)
         {
             dilfatal("Arg 4 of 'addextra' not an intlist");
         }
@@ -5888,15 +5892,15 @@ dilproc : corefuncall
     }
     | DILSI_LCRI '(' coreexp ',' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'logcrime' not an unitptr");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'logcrime' not an unitptr");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'logcrime' not an integer");
         }
@@ -5911,19 +5915,19 @@ dilproc : corefuncall
     | DILSE_CST '(' coreexp ',' coreexp ',' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 1 of cast", $3.boolean);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'cast_spell' not a number");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'cast_spell' not a unitptr");
         }
-        else if ($7.typ != DILV_UP)
+        else if ($7.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 3 of 'cast_spell' not a unitptr");
         }
-        else if ($9.typ != DILV_UP)
+        else if ($9.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 4 of 'cast_spell' not a unitptr");
         }
@@ -5937,11 +5941,11 @@ dilproc : corefuncall
     }
     | DILSI_ADL '(' coreexp ',' coreexp ')' ihold
     {
-        if (($3.typ != DILV_SLP) || ($3.dsl != DSL_LFT))
+        if (($3.typ != DilVarType_e::DILV_SLP) || ($3.dsl != DSL_LFT))
         {
             dilfatal("Arg 1 of 'addlist' not a stringlist variable");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'addlist' not a string");
         }
@@ -5957,11 +5961,11 @@ dilproc : corefuncall
     {
         /*fprintf(stderr, "SUE DSL %d TYP %d\n", $3.dsl, $3.typ);*/
 
-        if (($3.typ != DILV_EDP) || ($3.dsl != DSL_DYN))
+        if (($3.typ != DilVarType_e::DILV_EDP) || ($3.dsl != DSL_DYN))
         {
             dilfatal("Arg 1 of 'subextra' not a unit extra description");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'subextra' not a string");
         }
@@ -5975,17 +5979,17 @@ dilproc : corefuncall
     }
     | DILSI_INSLST '(' coreexp ',' coreexp ',' coreexp ')' ihold
     {
-        if (($3.typ != DILV_SLP
-            && $3.typ != DILV_ILP)
+        if (($3.typ != DilVarType_e::DILV_SLP
+            && $3.typ != DilVarType_e::DILV_ILP)
             || $3.dsl != DSL_LFT)
         {
             dilfatal("Arg 1 of 'insert' not a stringlist or intlist variable");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'insert' not an integer");
         }
-        else if ($7.typ != DILV_SP && $7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_SP && $7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'insert' not a string or integer");
         }
@@ -5999,13 +6003,13 @@ dilproc : corefuncall
     }
     | DILSI_REMLST '(' coreexp ',' coreexp ')' ihold
     {
-        if (($3.typ != DILV_SLP
-            && $3.typ != DILV_ILP)
+        if (($3.typ != DilVarType_e::DILV_SLP
+            && $3.typ != DilVarType_e::DILV_ILP)
             || $3.dsl != DSL_LFT)
         {
             dilfatal("Arg 1 of 'remove' not a stringlist or intlist variable");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'remove' not an integer");
         }
@@ -6019,11 +6023,11 @@ dilproc : corefuncall
     }
     | DILSI_SUL '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SLP || $3.dsl != DSL_LFT)
+        if ($3.typ != DilVarType_e::DILV_SLP || $3.dsl != DSL_LFT)
         {
             dilfatal("Arg 1 of 'sublist' not a stringlist variable");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'sublist' not a string");
         }
@@ -6038,11 +6042,11 @@ dilproc : corefuncall
     | DILSI_SUA '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 2 of subaff", $5.boolean);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'subaff' not a unit");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'subaff' not an integer");
         }
@@ -6056,47 +6060,47 @@ dilproc : corefuncall
     }
     | DILSI_ADA '(' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'addaff' not a unit");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'addaff' not an integer");
         }
-        else if ($7.typ != DILV_INT)
+        else if ($7.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 3 of 'addaff' not an integer");
         }
-        else if ($9.typ != DILV_INT)
+        else if ($9.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 4 of 'addaff' not an integer");
         }
-        else if ($11.typ != DILV_INT)
+        else if ($11.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 5 of 'addaff' not an integer");
         }
-        else if ($13.typ != DILV_INT)
+        else if ($13.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 6 of 'addaff' not an integer");
         }
-        else if ($15.typ != DILV_INT)
+        else if ($15.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 7 of 'addaff' not an integer");
         }
-        else if ($17.typ != DILV_INT)
+        else if ($17.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 8 of 'addaff' not an integer");
         }
-        else if ($19.typ != DILV_INT)
+        else if ($19.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 9 of 'addaff' not an integer");
         }
-        else if ($21.typ != DILV_INT)
+        else if ($21.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 10 of 'addaff' not an integer");
         }
-        else if ($23.typ != DILV_INT)
+        else if ($23.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 11 of 'addaff' not an integer");
         }
@@ -6110,11 +6114,11 @@ dilproc : corefuncall
     }
     | DILSI_GMSTATE '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'gamestate' not a unit");
         }
-        if ($5.typ != DILV_INT)
+        if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'gamestate' not an integer");
         }
@@ -6128,7 +6132,7 @@ dilproc : corefuncall
     }
     | DILSI_DST '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'destruct' not a unit");
         }
@@ -6142,7 +6146,7 @@ dilproc : corefuncall
     }
     | DILSI_LOG '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'log' not a string.");
         }
@@ -6156,7 +6160,7 @@ dilproc : corefuncall
     }
     | DILSI_PUP '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'position_update' not a unit");
         }
@@ -6170,7 +6174,7 @@ dilproc : corefuncall
     }
     | DILSI_RSLV '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'reset_level' not a unit");
         }
@@ -6184,7 +6188,7 @@ dilproc : corefuncall
     }
     | DILSI_RSVLV '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'reset_vlevel' not a unit");
         }
@@ -6198,7 +6202,7 @@ dilproc : corefuncall
     }
     | DILSI_RSRCE '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'reset_race' not a unit");
         }
@@ -6212,11 +6216,11 @@ dilproc : corefuncall
     }
     | DILSI_LNK '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'link' not a unit");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'link' not a unit");
         }
@@ -6231,11 +6235,11 @@ dilproc : corefuncall
     | DILSI_EXP '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 1 of experience", $3.boolean);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'experience' not an integer");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'experience' not a unitptr");
         }
@@ -6251,33 +6255,33 @@ dilproc : corefuncall
     {
         checkbool("argument 2 of act", $5.boolean);
         checkbool("argument 6 of act", $13.boolean);
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'act' not a string");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'act' not an integer");
         }
-        else if ($7.typ != DILV_NULL
-                 && $7.typ != DILV_SP
-                 && $7.typ != DILV_UP)
+        else if ($7.typ != DilVarType_e::DILV_NULL
+                 && $7.typ != DilVarType_e::DILV_SP
+                 && $7.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 3 of 'act' not a unit or string");
         }
-        else if ($9.typ != DILV_NULL
-                 && $9.typ != DILV_SP
-                 && $9.typ != DILV_UP)
+        else if ($9.typ != DilVarType_e::DILV_NULL
+                 && $9.typ != DilVarType_e::DILV_SP
+                 && $9.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 4 of 'act' not a unit or string");
         }
-        else if ($11.typ != DILV_NULL
-                 && $11.typ != DILV_SP
-                 && $11.typ != DILV_UP)
+        else if ($11.typ != DilVarType_e::DILV_NULL
+                 && $11.typ != DilVarType_e::DILV_SP
+                 && $11.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 5 of 'act' not a unit or string");
         }
-        else if ($13.typ != DILV_INT)
+        else if ($13.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 6 of 'act' not an integer");
         }
@@ -6292,11 +6296,11 @@ dilproc : corefuncall
     }
     | DILSI_EXE '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'exec' not a string");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'exec' not a unit");
         }
@@ -6311,7 +6315,7 @@ dilproc : corefuncall
     | DILSI_WIT '(' coreexp ',' coreexp ')' ihold ahold
     {
         checkbool("argument 1 of wait", $3.boolean);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'wait' not an integer");
         }
@@ -6327,7 +6331,7 @@ dilproc : corefuncall
     }
     | DILSI_SND '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'send' not a string");
         }
@@ -6341,11 +6345,11 @@ dilproc : corefuncall
     }
     | DILSI_SNT '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'sendto' not a string");
         }
-        else if ($5.typ != DILV_UP)
+        else if ($5.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 2 of 'sendto' not a unit");
         }
@@ -6359,11 +6363,11 @@ dilproc : corefuncall
     }
     | DILSI_SNTA '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'sendtoall' not a string");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'sendtoall' not a string");
         }
@@ -6377,11 +6381,11 @@ dilproc : corefuncall
     }
     | DILSI_SNTADIL '(' coreexp ',' coreexp ')' ihold
     {
-        if ($3.typ != DILV_SP)
+        if ($3.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 1 of 'sendtoalldil' not a string");
         }
-        else if ($5.typ != DILV_SP)
+        else if ($5.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Arg 2 of 'sendtoalldil' not a string");
         }
@@ -6399,7 +6403,7 @@ dilproc : corefuncall
         {
             dilfatal("Arg 1 of 'secure' not a user-variable.");
         }
-        else if ($3.typ != DILV_UP)
+        else if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'secure' not a unit");
         }
@@ -6413,7 +6417,7 @@ dilproc : corefuncall
     }
     | DILSI_USE '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'unsecure' not a unit");
         }
@@ -6455,7 +6459,7 @@ dilproc : corefuncall
     }
     /* | ihold '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
             dilfatal("Arg 1 of 'walkto' not a unit");
         else
         {
@@ -6468,11 +6472,11 @@ dilproc : corefuncall
     | DILSI_EQP '(' coreexp ',' coreexp ')' ihold
     {
         checkbool("argument 1 of addequip", $3.boolean);
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'addequip' not a unit");
         }
-        else if ($5.typ != DILV_INT)
+        else if ($5.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 2 of 'addequip' not an integer");
         }
@@ -6486,7 +6490,7 @@ dilproc : corefuncall
     }
     | DILSI_UEQ '(' coreexp ')' ihold
     {
-        if ($3.typ != DILV_UP)
+        if ($3.typ != DilVarType_e::DILV_UP)
         {
             dilfatal("Arg 1 of 'unequip' not a unit");
         }
@@ -6720,7 +6724,7 @@ dilcomplex : DILSI_IF '(' coreexp ')' ihold ahold block ihold ahold DILSI_ELS di
          * break starts with the instruction after loop.
          */
 
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
             dilfatal("Arg 1 of 'foreach' not an integer");
         wtmp = &tmpl.core[$5];
         bwrite_ubit8(&wtmp, DILI_FOE); /* foreach - clear / build */
@@ -6800,22 +6804,22 @@ funcall:  FUNCTION '(' arginit darglist ')'
             /* argument types collected in ref */
             switch (tmpl.xrefs[$1].argt[i])
             {
-                case DILV_SP:
-                case DILV_EDP:
-                case DILV_SLP:
-                case DILV_ILP:
-                case DILV_CP:
-                case DILV_ZP:
-                case DILV_UP:
+                case DilVarType_e::DILV_SP:
+                case DilVarType_e::DILV_EDP:
+                case DilVarType_e::DILV_SLP:
+                case DilVarType_e::DILV_ILP:
+                case DilVarType_e::DILV_CP:
+                case DilVarType_e::DILV_ZP:
+                case DilVarType_e::DILV_UP:
                 {
-                    if ((tmpl.xrefs[$1].argt[i] != ref.argt[i]) && (ref.argt[i] != DILV_NULL))
+                    if ((tmpl.xrefs[$1].argt[i] != ref.argt[i]) && (ref.argt[i] != DilVarType_e::DILV_NULL))
                     {
                         sprintf(buf, "Incompatible argument types in argument %d (A)", i + 1);
                         dilfatal(buf);
                     }
                 }
                 break;
-                case DILV_INT:
+                case DilVarType_e::DILV_INT:
                 {
                     if (tmpl.xrefs[$1].argt[i] != ref.argt[i])
                     {
@@ -6855,13 +6859,13 @@ funcall:  FUNCTION '(' arginit darglist ')'
     {
         INITEXP($$);
         int i;
-        if ($1.typ != DILV_SP)
+        if ($1.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Symbolic functions must be of type string");
         }
 
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_ERR;
+        $$.typ = DilVarType_e::DILV_ERR;
         for (i = 0; i < ref.argc; i++)
         {
             make_code(&explist[i]);
@@ -6881,13 +6885,13 @@ funcall:  FUNCTION '(' arginit darglist ')'
     {
         INITEXP($$);
         int i;
-        if ($2.typ != DILV_SP)
+        if ($2.typ != DilVarType_e::DILV_SP)
         {
             dilfatal("Symbolic functions must be of type string");
         }
 
         $$.dsl = DSL_DYN;
-        $$.typ = $1;
+        $$.typ = DilVarTypeIntToEnum($1);  // I'm not sure why 'type' returns the INT value rather than a DilVarType_e
         for (i = 0; i < ref.argc; i++)
         {
             make_code(&explist[i]);
@@ -6929,7 +6933,7 @@ corefuncall   : funcall
         }
         $$.dsl = $1.dsl;
         $$.typ = $1.typ;
-        if ($$.typ != DILV_ERR) // We need to throw away the return var
+        if ($$.typ != DilVarType_e::DILV_ERR) // We need to throw away the return var
         {
             moredilcore(1);
             bwrite_ubit8(&wcore, DILI_POPSTK);
@@ -6963,15 +6967,15 @@ dilass   : corevar DILTO_ASS dilassrgt ihold
         /* fprintf(stderr,"Assignment\n"); */
         switch ($1.typ)
         {
-            case DILV_SP:
-            case DILV_EDP:
-            case DILV_SLP:
-            case DILV_UP:
-            case DILV_ZP:
-            case DILV_CP:
-            case DILV_ILP:
+            case DilVarType_e::DILV_SP:
+            case DilVarType_e::DILV_EDP:
+            case DilVarType_e::DILV_SLP:
+            case DilVarType_e::DILV_UP:
+            case DilVarType_e::DILV_ZP:
+            case DilVarType_e::DILV_CP:
+            case DilVarType_e::DILV_ILP:
             {
-                if (($1.typ != $3.typ) && ($3.typ != DILV_NULL))
+                if (($1.typ != $3.typ) && ($3.typ != DilVarType_e::DILV_NULL))
                 {
                     dilfatal("Assigning incompatible types (C)");
                 }
@@ -6984,7 +6988,7 @@ dilass   : corevar DILTO_ASS dilassrgt ihold
                 }
             }
             break;
-            case DILV_INT:
+            case DilVarType_e::DILV_INT:
             {
                 if ($1.typ != $3.typ)
                 {
@@ -7011,7 +7015,7 @@ dilass   : corevar DILTO_ASS dilassrgt ihold
 corefunc : DILSE_INTR '(' coreexp ',' ihold ahold ahold coreexp ',' labelskip ')' 
     {
         checkbool("argument 1 in 'interrupt'", $3.boolean);
-        if ($3.typ != DILV_INT)
+        if ($3.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Arg 1 of 'interrupt' not number");
         }
@@ -7030,7 +7034,7 @@ corefunc : DILSE_INTR '(' coreexp ',' ihold ahold ahold coreexp ',' labelskip ')
             frm.intrcount++;
         }
         $$.dsl = DSL_DYN;
-        $$.typ = DILV_INT;
+        $$.typ = DilVarType_e::DILV_INT;
     }
     ;
 
@@ -7065,7 +7069,7 @@ dilinst  : dilproc
         {
             dilfatal("return only allowed in templates");
         }
-        if (tmpl.rtnt != DILV_ERR)
+        if (tmpl.rtnt != DilVarType_e::DILV_ERR)
         {
             dilfatal("no return expression expected");
         }
@@ -7095,7 +7099,7 @@ dilinst  : dilproc
     }
     | DILSI_ON coreexp ihold ihold ihold DILSI_GOT labellist
     {
-        if ($2.typ != DILV_INT)
+        if ($2.typ != DilVarType_e::DILV_INT)
         {
             dilfatal("Expression after 'on' does not return integer");
         }
@@ -7157,7 +7161,7 @@ dilinst  : dilproc
     ;
 %%
 
-void add_var(char *name, ubit16 type)
+void add_var(char *name, DilVarType_e type)
 {
     str_lower(name);
     //   fprintf(stderr, "Adding Variable #%d %s type %d\n",tmpl.varc, name, type);
@@ -7515,7 +7519,7 @@ ubit16 UpdateCRC(ubit8 c, ubit16 crc)
     return crc;
 }
 
-int dil_headercrc(char **name, ubit8 *type)
+int dil_headercrc(char **name, DilVarType_e *type)
 {
     int i, j;
     ubit16 crc = 0;
@@ -7554,7 +7558,7 @@ void make_code(struct exptype *dest)
     {
         switch (dest->typ)
         {
-            case DILV_INT: /* static integer */
+            case DilVarType_e::DILV_INT: /* static integer */
             {
                 dest->codep = dest->code;
                 dest->dsl = DSL_DYN;
@@ -7562,7 +7566,7 @@ void make_code(struct exptype *dest)
                 bwrite_ubit32(&(dest->codep), (ubit32)dest->num);
             }
             break;
-            case DILV_NULL: /* null pointer */
+            case DilVarType_e::DILV_NULL: /* null pointer */
             {
                 dest->codep = dest->code;
                 dest->dsl = DSL_DYN;
@@ -7589,7 +7593,7 @@ void add_ref(struct dilref *ref)
     {
         CREATE(refs[refcount].argv, char *, ref->argc);
         memcpy(refs[refcount].argv, ref->argv, ref->argc * sizeof(char *));
-        CREATE(refs[refcount].argt, ubit8, ref->argc);
+        CREATE(refs[refcount].argt, DilVarType_e, ref->argc);
         memcpy(refs[refcount].argt, ref->argt, ref->argc * sizeof(ubit8));
     }
     else

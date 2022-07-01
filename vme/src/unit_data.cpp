@@ -145,11 +145,7 @@ void unit_data::set_fi(file_index_type *f)
 std::string unit_data::json()
 {
     std::string s;
-    std::string t;
-
-    t = UNIT_FI_NAME(this);
-    t.append("@");
-    t.append(UNIT_FI_ZONENAME(this));
+    std::string t{getFileIndexSymName()};
 
     s = "{";
     s.append(str_json("idx", t));
@@ -216,9 +212,9 @@ std::string unit_data::json()
                 s.append(": {\n");
                 if (UROOM(this)->getRoomDirectionDataForExit(i)->getToRoom())
                 {
-                    t = UNIT_FI_NAME(ROOM_EXIT(this, i)->getToRoom());
+                    t = ROOM_EXIT(this, i)->getToRoom()->getFileIndexName();
                     t.append("@");
-                    t.append(UNIT_FI_ZONENAME(UROOM(this)->getRoomDirectionDataForExit(i)->getToRoom()));
+                    t.append(UROOM(this)->getRoomDirectionDataForExit(i)->getToRoom()->getFileIndexZoneName());
                     s.append(str_json("toroom", t));
                     s.append(",\n");
                 }
@@ -382,6 +378,19 @@ cNamelist &unit_data::getNames()
 const cNamelist &unit_data::getNames() const
 {
     return m_names;
+}
+
+unit_data *unit_data::inRoom()
+{
+    unit_data *u = this;
+    while (u && u->m_status != UNIT_ST_ROOM)
+    {
+        u = u->m_outside;
+    }
+
+    assert(u);
+
+    return u;
 }
 
 unit_fptr *unit_data::getFunctionPointer()

@@ -893,7 +893,7 @@ unit_data *read_unit_string(CByteBuffer *pBuf, int type, int len, const char *wh
 
                     base_race_info_type *sex_race = nullptr;
 
-                    if (CHAR_SEX(u) == SEX_MALE)
+                    if (u->getSex() == SEX_MALE)
                     {
                         sex_race = &g_race_info[CHAR_RACE(u)].male;
                     }
@@ -1553,13 +1553,7 @@ void normalize_world()
 
             if (unit_recursive(u, tmpu))
             {
-                slog(LOG_ALL,
-                     0,
-                     "Error: %s@%s was recursively in %s@%s!",
-                     UNIT_FI_NAME(u),
-                     UNIT_FI_ZONENAME(u),
-                     UNIT_FI_NAME(tmpu),
-                     UNIT_FI_ZONENAME(tmpu));
+                slog(LOG_ALL, 0, "Error: %s was recursively in %s!", u->getFileIndexSymName(), tmpu->getFileIndexSymName());
             }
             else
             {

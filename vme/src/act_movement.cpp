@@ -147,18 +147,6 @@ int has_found_door(unit_data *pc, int dir)
     }
 }
 
-unit_data *in_room(unit_data *u)
-{
-    while (u && !u->isRoom())
-    {
-        u = u->getUnitIn();
-    }
-
-    assert(u);
-
-    return u;
-}
-
 #define ALAS_NOWAY "Alas, you cannot go that way...<br/>"
 /**
  * Other logic has figured out if there was a direction, if it was open, if you're sleeping, mesgs, etc.
@@ -194,7 +182,7 @@ int room_move(unit_data *ch,
     int res = 0;
     unit_data *u = nullptr;
 
-    room_from = in_room(ch);
+    room_from = ch->inRoom();
 
     assert(room_from->isRoom());
     assert(room_to->isRoom());
@@ -216,7 +204,7 @@ int room_move(unit_data *ch,
         res = SFR_SHARE;
     }
 
-    if ((res != SFR_SHARE) || (room_from != in_room(ch)))
+    if ((res != SFR_SHARE) || (room_from != ch->inRoom()))
     {
         return 0;
     }
@@ -339,7 +327,7 @@ int generic_move(unit_data *ch, unit_data *mover, int direction, int following)
     ao = aArrOther;
     as = aArrSelf;
 
-    room_from = in_room(ch);
+    room_from = ch->inRoom();
 
     assert((ch == mover) || (ch->getUnitIn() == mover));
 
@@ -571,9 +559,8 @@ int generic_move(unit_data *ch, unit_data *mover, int direction, int following)
             {
                 slog(LOG_ALL,
                      0,
-                     "Ocean escape from %s@%s direction %d adding 150 to difficulty.",
-                     UNIT_FI_NAME(room_from),
-                     UNIT_FI_ZONENAME(room_from),
+                     "Ocean escape from %s direction %d adding 150 to difficulty.",
+                     room_from->getFileIndexSymName(),
                      direction);
                 diff += 150;
                 act("You really should have been in a boat here, swimming is incredible difficult.",
@@ -632,7 +619,7 @@ int generic_move(unit_data *ch, unit_data *mover, int direction, int following)
     {
         int need_movement = (g_movement_loss[ROOM_LANDSCAPE(room_from)] + g_movement_loss[ROOM_LANDSCAPE(room_to)]) / 2;
 
-        int overweight = UNIT_CONTAINING_W(ch) - char_carry_w_limit(mover);
+        int overweight = ch->getContainingWeight() - char_carry_w_limit(mover);
 
         if (overweight > 0)
         {
@@ -680,7 +667,7 @@ int self_walk(unit_data *ch, unit_data *mover, int direction, int following)
 {
     unit_data *room_from = nullptr;
 
-    room_from = in_room(ch);
+    room_from = ch->inRoom();
 
     int res = generic_move(ch, mover, direction, following);
 
@@ -689,7 +676,7 @@ int self_walk(unit_data *ch, unit_data *mover, int direction, int following)
         return res;
     }
 
-    if (res == 1 && (in_room(ch) != room_from))
+    if (res == 1 && (ch->inRoom() != room_from))
     {
         unit_data *u = nullptr;
 
@@ -721,7 +708,7 @@ int self_walk(unit_data *ch, unit_data *mover, int direction, int following)
                     break;
                 }
 
-                if (room_from == in_room(k->getFollower()) && CHAR_POS(k->getFollower()) >= POSITION_STANDING)
+                if (room_from == k->getFollower()->inRoom() && CHAR_POS(k->getFollower()) >= POSITION_STANDING)
                 {
                     act("You follow $3n.<br/>", A_SOMEONE, k->getFollower(), cActParameter(), ch, TO_CHAR);
                     if (k->getFollower()->getUnitIn()->isRoom())
